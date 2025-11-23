@@ -20,6 +20,7 @@ out/
 .expo/
 .expo-shared/
 .vercel/
+.vercel*
 
 # Testing
 coverage/
@@ -79,4 +80,4 @@ apps/mobile/ios/
 apps/api/node_modules/
 apps/api/dist/
 apps/api/build/
-.vercel
+
