@@ -53,8 +53,10 @@ app.get('/search', async (c) => {
           console.warn('ANTHROPIC_API_KEY not configured, skipping written search');
         } else {
           const writtenResults = await searchWrittenTutorials(query);
+          console.log(`📚 Anthropic search returned ${writtenResults.length} potential tutorials`);
           
           // Try to find one working written tutorial
+          let foundValidTutorial = false;
           for (const result of writtenResults) {
             try {
               console.log(`Validating written tutorial: ${result.url}`);
@@ -66,7 +68,7 @@ app.get('/search', async (c) => {
                 // Valid tutorial found - create and add it
                 const tutorial: WrittenTutorial = {
                   type: 'written',
-                  id: `written-${Date.now()}-${result.url}`,
+                  id: `written-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                   title: result.title,
                   description: result.snippet || '',
                   url: result.url,
@@ -79,7 +81,10 @@ app.get('/search', async (c) => {
                 console.log(`✅ Tutorial created with imageUrl: ${tutorial.imageUrl || 'none'}`);
                 results.push(tutorial);
                 console.log(`✅ Found 1 validated written tutorial: ${result.title}`);
+                foundValidTutorial = true;
                 break; // Found one working tutorial, stop searching
+              } else {
+                console.warn(`Tutorial ${result.url} has insufficient content (${scraped.content?.length || 0} chars, need 200+)`);
               }
             } catch (error: any) {
               console.warn(`Failed to validate tutorial ${result.url}: ${error.message}`);
@@ -88,13 +93,31 @@ app.get('/search', async (c) => {
             }
           }
           
-          if ((searchType === 'written' || searchType === 'either') && 
-              results.filter(r => r.type === 'written').length === 0) {
-            console.warn('No working written tutorials found after validation');
+          if (!foundValidTutorial && writtenResults.length > 0) {
+            console.warn(`⚠️  All ${writtenResults.length} tutorials failed validation/scraping`);
+            // Fallback: Return first result without content (will be loaded when opened)
+            const firstResult = writtenResults[0];
+            const tutorial: WrittenTutorial = {
+              type: 'written',
+              id: `written-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              title: firstResult.title,
+              description: firstResult.snippet || '',
+              url: firstResult.url,
+              // Content will be loaded when user opens it
+            };
+            console.log(`📄 Returning tutorial without pre-scraped content: ${firstResult.title}`);
+            results.push(tutorial);
+          } else if (writtenResults.length === 0) {
+            console.warn('No written tutorial results found from Anthropic search');
           }
         }
       } catch (error: any) {
         console.error('Written tutorial search error:', error.message);
+        console.error('Error details:', error);
+        // Log the full error for debugging
+        if (error.stack) {
+          console.error('Stack trace:', error.stack);
+        }
         // Continue even if written search fails - return empty results instead of error
       }
     }
@@ -171,7 +194,7 @@ app.get('/scrape', async (c) => {
     return c.json({ 
       error: errorMessage,
       details: error.message || 'Unknown error'
-    }, statusCode);
+    }, statusCode as 400 | 403 | 404 | 422 | 500 | 504);
   }
 });
 

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import Anthropic from '@anthropic-ai/sdk';
 import { getContainer, generateId, isCosmosAvailable } from '../lib/cosmos';
-import type { ChatMessage, ChatConversation, ChatMessageCreateRequest, ConversationCreateRequest, FoodProfile, Recipe } from '@plateful/shared';
+import type { ChatMessage, ChatConversation, ChatMessageCreateRequest, ConversationCreateRequest, FoodProfile, Recipe, RecipeData } from '@plateful/shared';
 
 const app = new Hono();
 

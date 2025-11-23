@@ -20,14 +20,7 @@ import { groupGroceryItems, type GroupedGroceryItems } from '@plateful/shared/sr
 import { ScrollView, TouchableWithoutFeedback } from 'react-native';
 import Header from '../../src/components/Header';
 import { auth } from '../../src/config/firebase';
-
-// API endpoint - platform aware
-const API_BASE = Platform.select({
-  web: 'http://localhost:3001',
-  android: 'http://10.0.2.2:3001',
-  ios: 'http://localhost:3001',
-  default: 'http://localhost:3001',
-});
+import { API_BASE } from '../../src/config/api';
 
 type ViewMode = 'lists' | 'items';
 type GroceryTab = 'lists' | 'pantry';

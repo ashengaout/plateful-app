@@ -20,14 +20,7 @@ import type { ChatMessage, ChatConversation } from '@plateful/shared';
 import type { IntentExtractionResult } from '@plateful/shared';
 import { auth } from '../../src/config/firebase';
 import Header from '../../src/components/Header';
-
-// API endpoint - platform aware
-const API_BASE = Platform.select({
-  web: 'http://localhost:3001',      // Web browser
-  android: 'http://10.0.2.2:3001',   // Android emulator
-  ios: 'http://localhost:3001',      // iOS simulator
-  default: 'http://localhost:3001',
-});
+import { API_BASE } from '../../src/config/api';
 
 export default function ChatScreen() {
   const params = useLocalSearchParams<{ editingConversationID?: string }>();
@@ -365,29 +358,46 @@ export default function ChatScreen() {
     try {
       console.log(`🔄 Generating recipe for conversation ${conversationID}...`);
       
-      const response = await fetch(`${API_BASE}/api/generate-recipe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationID,
-          userID: auth.currentUser.uid,
-        }),
-      });
+      // Recipe generation involves AI calls and web scraping, allow up to 45 seconds
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+      
+      let response: Response;
+      try {
+        response = await fetch(`${API_BASE}/api/generate-recipe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationID,
+            userID: auth.currentUser.uid,
+          }),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        
-        // Handle off-topic conversations
-        if (response.status === 400 && errorData.error === 'Off-topic conversation') {
-          Alert.alert(
-            'Not About Cooking',
-            'Let\'s talk about food! Ask me about a dish or cuisine you\'d like to cook.',
-            [{ text: 'OK' }]
-          );
-          return;
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          
+          // Handle off-topic conversations
+          if (response.status === 400 && errorData.error === 'Off-topic conversation') {
+            Alert.alert(
+              'Not About Cooking',
+              'Let\'s talk about food! Ask me about a dish or cuisine you\'d like to cook.',
+              [{ text: 'OK' }]
+            );
+            return;
+          }
+          
+          console.error('Recipe generation failed:', response.status, errorData);
+          throw new Error(errorData.error || `Failed to generate recipe: ${response.statusText}`);
         }
-        
-        throw new Error(`Failed to generate recipe: ${response.statusText}`);
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new Error('Recipe generation timed out. Please try again.');
+        }
+        throw error;
       }
 
       const data = await response.json();

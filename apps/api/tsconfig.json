@@ -7,6 +7,7 @@
       "ES2020"
     ],
     "moduleResolution": "node",
+    "types": [],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -15,11 +16,16 @@
     "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "noEmit": false
   },
   "include": [
     "api/**/*",
-    "dev-server.ts"
+    "dev-server.ts",
+    "server.ts",
+    "lib/**/*",
+    "services/**/*",
+    "utils/**/*"
   ],
   "exclude": [
     "node_modules",

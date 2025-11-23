@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Button } from '@plateful/ui';
 import Header from '../src/components/Header';
 import { auth } from '../src/config/firebase';
+import { API_BASE } from '../src/config/api';
 import type { FoodProfile } from '@plateful/shared';
 import { colors } from '@plateful/shared';
 import { Input } from '@plateful/ui';
@@ -167,13 +168,6 @@ const ALL_TIMEZONES = TIMEZONE_GROUPS.flatMap(group =>
 const TIMEZONE_OFFSETS = new Map<string, string>();
 ALL_TIMEZONES.forEach(tz => {
   TIMEZONE_OFFSETS.set(tz.value, getUTCOffset(tz.value));
-});
-
-const API_BASE = Platform.select({
-  web: 'http://localhost:3001',
-  android: 'http://10.0.2.2:3001',
-  ios: 'http://localhost:3001',
-  default: 'http://localhost:3001',
 });
 
 type TabType = 'info' | 'preferences' | 'macros';
