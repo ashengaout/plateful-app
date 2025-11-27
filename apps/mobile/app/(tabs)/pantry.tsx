@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -15,7 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors, semanticColors } from '@plateful/shared';
 import type { PantryItem, PantryCategory, CommonIngredient } from '@plateful/shared';
-import { COMMON_INGREDIENTS, getIngredientsByCategory, CATEGORY_NAMES } from '@plateful/shared';
+import { COMMON_INGREDIENTS, getIngredientsByCategory, CATEGORY_NAMES, CATEGORY_ORDER } from '@plateful/shared';
 import Header from '../../src/components/Header';
 import { auth } from '../../src/config/firebase';
 import { API_BASE } from '../../src/config/api';
@@ -120,6 +121,7 @@ export default function PantryScreen() {
   const [showQuantityModal, setShowQuantityModal] = useState(false);
   const [selectedIngredient, setSelectedIngredient] = useState<CommonIngredient | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'add' | 'list'>('add');
 
   const groupedIngredients = getIngredientsByCategory();
   const pantryItemNames = new Set(pantryItems.map(item => item.name.toLowerCase()));
@@ -129,6 +131,15 @@ export default function PantryScreen() {
       loadPantryItems();
     }
   }, []);
+
+  // Reload pantry items when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      if (auth.currentUser) {
+        loadPantryItems();
+      }
+    }, [])
+  );
 
   const loadPantryItems = async () => {
     if (!auth.currentUser) return;
@@ -252,34 +263,106 @@ export default function PantryScreen() {
     pantryByCategory[item.category].push(item);
   });
 
-  // Filter ingredients by search query
-  const filteredIngredients = searchQuery
-    ? COMMON_INGREDIENTS.filter(ing => 
-        ing.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : COMMON_INGREDIENTS;
-
+  // Filter ingredients by search query and exclude items already in pantry
   const filteredGrouped = searchQuery
     ? Object.entries(groupedIngredients).reduce((acc, [cat, items]) => {
         const filtered = items.filter(ing => 
-          ing.name.toLowerCase().includes(searchQuery.toLowerCase())
+          ing.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
+          !pantryItemNames.has(ing.name.toLowerCase())
         );
         if (filtered.length > 0) acc[cat] = filtered;
         return acc;
       }, {} as Record<string, CommonIngredient[]>)
-    : groupedIngredients;
+    : Object.entries(groupedIngredients).reduce((acc, [cat, items]) => {
+        const filtered = items.filter(ing => 
+          !pantryItemNames.has(ing.name.toLowerCase())
+        );
+        if (filtered.length > 0) acc[cat] = filtered;
+        return acc;
+      }, {} as Record<string, CommonIngredient[]>);
+
+  // Get all categories that have either pantry items or available quick-add ingredients
+  const allCategories = new Set<string>();
+  Object.keys(pantryByCategory).forEach(cat => allCategories.add(cat));
+  Object.keys(filteredGrouped).forEach(cat => allCategories.add(cat));
+  
+  // Sort categories using CATEGORY_ORDER (with 'other' always last)
+  const sortedCategories = Array.from(allCategories).sort((a, b) => {
+    const indexA = CATEGORY_ORDER.indexOf(a as PantryCategory);
+    const indexB = CATEGORY_ORDER.indexOf(b as PantryCategory);
+    
+    // If both are in the order, sort by their position
+    if (indexA !== -1 && indexB !== -1) {
+      return indexA - indexB;
+    }
+    // If only one is in the order, prioritize it
+    if (indexA !== -1) return -1;
+    if (indexB !== -1) return 1;
+    // If neither is in the order, sort alphabetically
+    // But 'other' should always be last
+    if (a === 'other') return 1;
+    if (b === 'other') return -1;
+    const nameA = CATEGORY_NAMES[a] || a;
+    const nameB = CATEGORY_NAMES[b] || b;
+    return nameA.localeCompare(nameB);
+  });
+
+  // Get categories for master list (only categories with pantry items)
+  const masterListCategories = Object.keys(pantryByCategory).sort((a, b) => {
+    const indexA = CATEGORY_ORDER.indexOf(a as PantryCategory);
+    const indexB = CATEGORY_ORDER.indexOf(b as PantryCategory);
+    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+    if (indexA !== -1) return -1;
+    if (indexB !== -1) return 1;
+    if (a === 'other') return 1;
+    if (b === 'other') return -1;
+    return (CATEGORY_NAMES[a] || a).localeCompare(CATEGORY_NAMES[b] || b);
+  });
+
+  // Filter pantry items by search query for master list
+  const filteredPantryItems = searchQuery
+    ? pantryItems.filter(item =>
+        item.name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : pantryItems;
+
+  const filteredPantryByCategory: Record<string, PantryItem[]> = {};
+  filteredPantryItems.forEach(item => {
+    if (!filteredPantryByCategory[item.category]) {
+      filteredPantryByCategory[item.category] = [];
+    }
+    filteredPantryByCategory[item.category].push(item);
+  });
 
   return (
     <View style={styles.container}>
       <Header title="My Pantry" />
       
+      {/* Tab Switcher */}
+      <View style={styles.tabSwitcher}>
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'add' ? styles.tabButtonActive : styles.tabButtonInactive]}
+          onPress={() => setActiveTab('add')}
+        >
+          <Ionicons name="add-circle-outline" size={18} color={activeTab === 'add' ? colors.surface : colors.textSecondary} />
+          <Text style={[styles.tabButtonText, activeTab === 'add' && styles.tabButtonTextActive]}>Add Items</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'list' ? styles.tabButtonActive : styles.tabButtonInactive]}
+          onPress={() => setActiveTab('list')}
+        >
+          <Ionicons name="list" size={18} color={activeTab === 'list' ? colors.surface : colors.textSecondary} />
+          <Text style={[styles.tabButtonText, activeTab === 'list' && styles.tabButtonTextActive]}>My Pantry ({pantryItems.length})</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Search Bar */}
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search ingredients..."
+            placeholder={activeTab === 'add' ? "Search ingredients..." : "Search your pantry..."}
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholderTextColor={colors.textSecondary}
@@ -291,103 +374,164 @@ export default function PantryScreen() {
           )}
         </View>
 
-        {/* Quick Add Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Add</Text>
-          <Text style={styles.sectionSubtitle}>Tap to add common ingredients</Text>
-          
-          {Object.entries(filteredGrouped).map(([category, ingredients]) => (
-            <View key={category} style={styles.categorySection}>
-              <Text style={styles.categoryTitle}>{CATEGORY_NAMES[category] || category}</Text>
-              <View style={styles.chipContainer}>
-                {ingredients.map((ingredient) => {
-                  const isAdded = pantryItemNames.has(ingredient.name.toLowerCase());
-                  return (
-                    <TouchableOpacity
-                      key={ingredient.name}
-                      style={[
-                        styles.chip,
-                        isAdded && styles.chipAdded,
-                      ]}
-                      onPress={() => !isAdded && handleIngredientPress(ingredient)}
-                      disabled={isAdded}
-                    >
-                      <Text style={[styles.chipText, isAdded && styles.chipTextAdded]}>
-                        {ingredient.name}
-                        {isAdded && ' ✓'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+        {activeTab === 'add' ? (
+          <>
+            {/* Custom Add Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Add Custom Ingredient</Text>
+              <View style={styles.customInputRow}>
+                <TextInput
+                  style={styles.customInput}
+                  placeholder="Enter ingredient name..."
+                  value={customInput}
+                  onChangeText={setCustomInput}
+                  onSubmitEditing={handleCustomAdd}
+                  placeholderTextColor={colors.textSecondary}
+                />
+                <TouchableOpacity
+                  style={[styles.addButton, !customInput.trim() && styles.addButtonDisabled]}
+                  onPress={handleCustomAdd}
+                  disabled={!customInput.trim()}
+                >
+                  <Ionicons name="add" size={24} color={colors.surface} />
+                </TouchableOpacity>
               </View>
             </View>
-          ))}
-        </View>
 
-        {/* Custom Add Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Add Custom Ingredient</Text>
-          <View style={styles.customInputRow}>
-            <TextInput
-              style={styles.customInput}
-              placeholder="Enter ingredient name..."
-              value={customInput}
-              onChangeText={setCustomInput}
-              onSubmitEditing={handleCustomAdd}
-              placeholderTextColor={colors.textSecondary}
-            />
-            <TouchableOpacity
-              style={[styles.addButton, !customInput.trim() && styles.addButtonDisabled]}
-              onPress={handleCustomAdd}
-              disabled={!customInput.trim()}
-            >
-              <Ionicons name="add" size={24} color={colors.surface} />
-            </TouchableOpacity>
-          </View>
-        </View>
+            {/* Category-Based Sections */}
+            {loading ? (
+              <View style={styles.section}>
+                <ActivityIndicator size="large" color={colors.primary} style={styles.loader} />
+              </View>
+            ) : sortedCategories.length === 0 && pantryItems.length === 0 ? (
+              <View style={styles.section}>
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="basket-outline" size={64} color={colors.textSecondary} />
+                  <Text style={styles.emptyText}>Your pantry is empty</Text>
+                  <Text style={styles.emptySubtext}>
+                    Add ingredients above to track what you have
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              sortedCategories.map((category) => {
+                const pantryItemsInCategory = pantryByCategory[category] || [];
+                const quickAddIngredients = filteredGrouped[category] || [];
+                const hasContent = pantryItemsInCategory.length > 0 || quickAddIngredients.length > 0;
 
-        {/* My Pantry List */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            My Pantry ({pantryItems.length})
-          </Text>
-          
-          {loading ? (
-            <ActivityIndicator size="large" color={colors.primary} style={styles.loader} />
-          ) : pantryItems.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="basket-outline" size={64} color={colors.textSecondary} />
-              <Text style={styles.emptyText}>Your pantry is empty</Text>
-              <Text style={styles.emptySubtext}>
-                Add ingredients above to track what you have
-              </Text>
-            </View>
-          ) : (
-            Object.entries(pantryByCategory).map(([category, items]) => (
-              <View key={category} style={styles.pantryCategorySection}>
-                <Text style={styles.categoryTitle}>{CATEGORY_NAMES[category] || category}</Text>
-                {items.map((item) => (
-                  <View key={item.id} style={styles.pantryItem}>
-                    <View style={styles.pantryItemContent}>
-                      <Text style={styles.pantryItemName}>{item.name}</Text>
-                      {item.quantity && item.unit && (
-                        <Text style={styles.pantryItemQuantity}>
-                          {item.quantity} {item.unit}
-                        </Text>
-                      )}
-                    </View>
-                    <TouchableOpacity
-                      style={styles.deleteButton}
-                      onPress={() => removePantryItem(item.id)}
-                    >
-                      <Ionicons name="trash-outline" size={20} color={semanticColors.error} />
-                    </TouchableOpacity>
+                if (!hasContent) return null;
+
+                return (
+                  <View key={category} style={styles.section}>
+                    <Text style={styles.sectionTitle}>
+                      {CATEGORY_NAMES[category] || category}
+                    </Text>
+
+                    {/* Pantry Items in this category */}
+                    {pantryItemsInCategory.length > 0 && (
+                      <View style={styles.pantryCategorySection}>
+                        {pantryItemsInCategory.map((item) => (
+                          <View key={item.id} style={styles.pantryItem}>
+                            <View style={styles.pantryItemContent}>
+                              <Text style={styles.pantryItemName}>{item.name}</Text>
+                              {item.quantity && item.unit && (
+                                <Text style={styles.pantryItemQuantity}>
+                                  {item.quantity} {item.unit}
+                                </Text>
+                              )}
+                            </View>
+                            <TouchableOpacity
+                              style={styles.deleteButton}
+                              onPress={() => removePantryItem(item.id)}
+                            >
+                              <Ionicons name="trash-outline" size={20} color={semanticColors.error} />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {/* Quick-add bubbles for ingredients not in pantry */}
+                    {quickAddIngredients.length > 0 && (
+                      <View style={styles.categorySection}>
+                        {pantryItemsInCategory.length > 0 && (
+                          <Text style={styles.quickAddLabel}>Quick Add</Text>
+                        )}
+                        <View style={styles.chipContainer}>
+                          {quickAddIngredients.map((ingredient) => (
+                            <TouchableOpacity
+                              key={ingredient.name}
+                              style={styles.chip}
+                              onPress={() => handleIngredientPress(ingredient)}
+                            >
+                              <Text style={styles.chipText}>
+                                {ingredient.name}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    )}
                   </View>
-                ))}
+                );
+              })
+            )}
+          </>
+        ) : (
+          /* Master List View - Only owned items */
+          <>
+            {loading ? (
+              <View style={styles.section}>
+                <ActivityIndicator size="large" color={colors.primary} style={styles.loader} />
               </View>
-            ))
-          )}
-        </View>
+            ) : filteredPantryItems.length === 0 ? (
+              <View style={styles.section}>
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="basket-outline" size={64} color={colors.textSecondary} />
+                  <Text style={styles.emptyText}>
+                    {searchQuery ? 'No items found' : 'Your pantry is empty'}
+                  </Text>
+                  <Text style={styles.emptySubtext}>
+                    {searchQuery 
+                      ? 'Try a different search term'
+                      : 'Switch to "Add Items" to add ingredients to your pantry'
+                    }
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              masterListCategories
+                .filter(cat => filteredPantryByCategory[cat] && filteredPantryByCategory[cat].length > 0)
+                .map((category) => (
+                  <View key={category} style={styles.section}>
+                    <Text style={styles.sectionTitle}>
+                      {CATEGORY_NAMES[category] || category}
+                    </Text>
+                    <View style={styles.pantryCategorySection}>
+                      {filteredPantryByCategory[category].map((item) => (
+                        <View key={item.id} style={styles.pantryItem}>
+                          <View style={styles.pantryItemContent}>
+                            <Text style={styles.pantryItemName}>{item.name}</Text>
+                            {item.quantity && item.unit && (
+                              <Text style={styles.pantryItemQuantity}>
+                                {item.quantity} {item.unit}
+                              </Text>
+                            )}
+                          </View>
+                          <TouchableOpacity
+                            style={styles.deleteButton}
+                            onPress={() => removePantryItem(item.id)}
+                          >
+                            <Ionicons name="trash-outline" size={20} color={semanticColors.error} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ))
+            )}
+          </>
+        )}
       </ScrollView>
 
       <QuantityModal
@@ -407,6 +551,37 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  tabSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider || '#E0E0E0',
+    paddingHorizontal: 20,
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 6,
+  },
+  tabButtonActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: colors.primary,
+  },
+  tabButtonInactive: {
+    opacity: 0.6,
+  },
+  tabButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  tabButtonTextActive: {
+    color: colors.primary,
+    fontWeight: '600',
   },
   scrollView: {
     flex: 1,
@@ -456,6 +631,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.textPrimary,
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  quickAddLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textSecondary,
     marginBottom: 12,
     marginTop: 8,
   },

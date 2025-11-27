@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, semanticColors } from '@plateful/shared';
 import type { GroceryList, GroceryItem, PantryItem, PantryCategory, CommonIngredient } from '@plateful/shared';
-import { findPantryMatch, COMMON_INGREDIENTS, getIngredientsByCategory, CATEGORY_NAMES, detectPantryCategory } from '@plateful/shared';
+import { findPantryMatch, COMMON_INGREDIENTS, getIngredientsByCategory, CATEGORY_NAMES, CATEGORY_ORDER, detectPantryCategory } from '@plateful/shared';
 import { groupGroceryItems, type GroupedGroceryItems } from '@plateful/shared/src/utils/grocery-grouping';
 import { ScrollView, TouchableWithoutFeedback } from 'react-native';
 import Header from '../../src/components/Header';
@@ -24,6 +24,99 @@ import { API_BASE } from '../../src/config/api';
 
 type ViewMode = 'lists' | 'items';
 type GroceryTab = 'lists' | 'pantry';
+
+interface QuantityModalProps {
+  visible: boolean;
+  ingredient: CommonIngredient | null;
+  onClose: () => void;
+  onConfirm: (quantity: number, unit: string) => void;
+}
+
+function QuantityModal({ visible, ingredient, onClose, onConfirm }: QuantityModalProps) {
+  const [quantity, setQuantity] = useState('');
+  const [unit, setUnit] = useState('');
+
+  useEffect(() => {
+    if (ingredient) {
+      setUnit(ingredient.commonUnits?.[0] || '');
+      setQuantity('');
+    }
+  }, [ingredient]);
+
+  const handleConfirm = () => {
+    const qty = parseFloat(quantity);
+    if (isNaN(qty) || qty <= 0) {
+      Alert.alert('Invalid Quantity', 'Please enter a valid quantity');
+      return;
+    }
+    onConfirm(qty, unit);
+    setQuantity('');
+  };
+
+  if (!ingredient) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={pantryStyles.modalBackdrop}>
+          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <View style={pantryStyles.modalContent}>
+              <Text style={pantryStyles.modalTitle}>Add {ingredient.name}</Text>
+              
+              <View style={pantryStyles.quantityRow}>
+                <TextInput
+                  style={pantryStyles.quantityInput}
+                  placeholder="0"
+                  value={quantity}
+                  onChangeText={setQuantity}
+                  keyboardType="numeric"
+                  autoFocus
+                />
+                
+                {ingredient.commonUnits && ingredient.commonUnits.length > 0 ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={pantryStyles.unitScroll}>
+                    {ingredient.commonUnits.map((u) => (
+                      <TouchableOpacity
+                        key={u}
+                        style={[pantryStyles.unitChip, unit === u && pantryStyles.unitChipActive]}
+                        onPress={() => setUnit(u)}
+                      >
+                        <Text style={[pantryStyles.unitChipText, unit === u && pantryStyles.unitChipTextActive]}>
+                          {u}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <TextInput
+                    style={pantryStyles.unitInput}
+                    placeholder="unit"
+                    value={unit}
+                    onChangeText={setUnit}
+                  />
+                )}
+              </View>
+
+              <View style={pantryStyles.modalButtons}>
+                <TouchableOpacity style={pantryStyles.modalButtonCancel} onPress={onClose}>
+                  <Text style={pantryStyles.modalButtonTextCancel}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={pantryStyles.modalButtonConfirm} onPress={handleConfirm}>
+                  <Text style={pantryStyles.modalButtonTextConfirm}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
 
 // Pantry View Component
 function PantryViewContent({ 
@@ -47,11 +140,16 @@ function PantryViewContent({
     if (!auth.currentUser) return;
 
     try {
-      const response = await fetch(`${API_BASE}/api/pantry?userID=${auth.currentUser.uid}`, {
+      const response = await fetch(`${API_BASE}/api/pantry/${auth.currentUser.uid}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: [{ name, category, quantity, unit }],
+          items: [{
+            name,
+            category,
+            quantity,
+            unit,
+          }],
         }),
       });
 
@@ -77,11 +175,14 @@ function PantryViewContent({
     if (!auth.currentUser) return;
 
     try {
-      const response = await fetch(`${API_BASE}/api/pantry?userID=${auth.currentUser.uid}&itemId=${itemId}`, {
+      const response = await fetch(`${API_BASE}/api/pantry/${auth.currentUser.uid}/${itemId}`, {
         method: 'DELETE',
       });
 
-      if (!response.ok) throw new Error('Failed to remove item');
+      if (!response.ok) {
+        throw new Error('Failed to remove item');
+      }
+
       await loadPantryItems();
     } catch (error) {
       console.error('Failed to remove pantry item:', error);
@@ -130,15 +231,49 @@ function PantryViewContent({
     pantryByCategory[item.category].push(item);
   });
 
+  // Filter ingredients by search query and exclude items already in pantry
   const filteredGrouped = searchQuery
     ? Object.entries(groupedIngredients).reduce((acc, [cat, items]) => {
         const filtered = items.filter(ing => 
-          ing.name.toLowerCase().includes(searchQuery.toLowerCase())
+          ing.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
+          !pantryItemNames.has(ing.name.toLowerCase())
         );
         if (filtered.length > 0) acc[cat] = filtered;
         return acc;
       }, {} as Record<string, CommonIngredient[]>)
-    : groupedIngredients;
+    : Object.entries(groupedIngredients).reduce((acc, [cat, items]) => {
+        const filtered = items.filter(ing => 
+          !pantryItemNames.has(ing.name.toLowerCase())
+        );
+        if (filtered.length > 0) acc[cat] = filtered;
+        return acc;
+      }, {} as Record<string, CommonIngredient[]>);
+
+  // Get all categories that have either pantry items or available quick-add ingredients
+  const allCategories = new Set<string>();
+  Object.keys(pantryByCategory).forEach(cat => allCategories.add(cat));
+  Object.keys(filteredGrouped).forEach(cat => allCategories.add(cat));
+  
+  // Sort categories using CATEGORY_ORDER (with 'other' always last)
+  const sortedCategories = Array.from(allCategories).sort((a, b) => {
+    const indexA = CATEGORY_ORDER.indexOf(a as PantryCategory);
+    const indexB = CATEGORY_ORDER.indexOf(b as PantryCategory);
+    
+    // If both are in the order, sort by their position
+    if (indexA !== -1 && indexB !== -1) {
+      return indexA - indexB;
+    }
+    // If only one is in the order, prioritize it
+    if (indexA !== -1) return -1;
+    if (indexB !== -1) return 1;
+    // If neither is in the order, sort alphabetically
+    // But 'other' should always be last
+    if (a === 'other') return 1;
+    if (b === 'other') return -1;
+    const nameA = CATEGORY_NAMES[a] || a;
+    const nameB = CATEGORY_NAMES[b] || b;
+    return nameA.localeCompare(nameB);
+  });
 
   return (
     <View style={styles.container}>
@@ -179,36 +314,6 @@ function PantryViewContent({
           )}
         </View>
 
-        {/* Quick Add Section */}
-        <View style={pantryStyles.section}>
-          <Text style={pantryStyles.sectionTitle}>Quick Add</Text>
-          <Text style={pantryStyles.sectionSubtitle}>Tap to add common ingredients</Text>
-          
-          {Object.entries(filteredGrouped).map(([category, ingredients]) => (
-            <View key={category} style={pantryStyles.categorySection}>
-              <Text style={pantryStyles.categoryTitle}>{CATEGORY_NAMES[category] || category}</Text>
-              <View style={pantryStyles.chipContainer}>
-                {ingredients.map((ingredient) => {
-                  const isAdded = pantryItemNames.has(ingredient.name.toLowerCase());
-                  return (
-                    <TouchableOpacity
-                      key={ingredient.name}
-                      style={[pantryStyles.chip, isAdded && pantryStyles.chipAdded]}
-                      onPress={() => !isAdded && handleIngredientPress(ingredient)}
-                      disabled={isAdded}
-                    >
-                      <Text style={[pantryStyles.chipText, isAdded && pantryStyles.chipTextAdded]}>
-                        {ingredient.name}
-                        {isAdded && ' ✓'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          ))}
-        </View>
-
         {/* Custom Add Section */}
         <View style={pantryStyles.section}>
           <Text style={pantryStyles.sectionTitle}>Add Custom Ingredient</Text>
@@ -231,11 +336,9 @@ function PantryViewContent({
           </View>
         </View>
 
-        {/* My Pantry List */}
-        <View style={pantryStyles.section}>
-          <Text style={pantryStyles.sectionTitle}>My Pantry ({pantryItems.length})</Text>
-          
-          {pantryItems.length === 0 ? (
+        {/* Category-Based Sections */}
+        {sortedCategories.length === 0 && pantryItems.length === 0 ? (
+          <View style={pantryStyles.section}>
             <View style={pantryStyles.emptyContainer}>
               <Ionicons name="basket-outline" size={64} color={colors.textSecondary} />
               <Text style={pantryStyles.emptyText}>Your pantry is empty</Text>
@@ -243,51 +346,83 @@ function PantryViewContent({
                 Add ingredients above to track what you have
               </Text>
             </View>
-          ) : (
-            Object.entries(pantryByCategory).map(([category, items]) => (
-              <View key={category} style={pantryStyles.pantryCategorySection}>
-                <Text style={pantryStyles.categoryTitle}>{CATEGORY_NAMES[category] || category}</Text>
-                {items.map((item) => (
-                  <View key={item.id} style={pantryStyles.pantryItem}>
-                    <View style={pantryStyles.pantryItemContent}>
-                      <Text style={pantryStyles.pantryItemName}>{item.name}</Text>
-                      {item.quantity && item.unit && (
-                        <Text style={pantryStyles.pantryItemQuantity}>
-                          {item.quantity} {item.unit}
-                        </Text>
-                      )}
-                    </View>
-                    <TouchableOpacity
-                      style={pantryStyles.deleteButton}
-                      onPress={() => removePantryItem(item.id)}
-                    >
-                      <Ionicons name="trash-outline" size={20} color={semanticColors.error} />
-                    </TouchableOpacity>
+          </View>
+        ) : (
+          sortedCategories.map((category) => {
+            const pantryItemsInCategory = pantryByCategory[category] || [];
+            const quickAddIngredients = filteredGrouped[category] || [];
+            const hasContent = pantryItemsInCategory.length > 0 || quickAddIngredients.length > 0;
+
+            if (!hasContent) return null;
+
+            return (
+              <View key={category} style={pantryStyles.section}>
+                <Text style={pantryStyles.sectionTitle}>
+                  {CATEGORY_NAMES[category] || category}
+                </Text>
+
+                {/* Pantry Items in this category */}
+                {pantryItemsInCategory.length > 0 && (
+                  <View style={pantryStyles.pantryCategorySection}>
+                    {pantryItemsInCategory.map((item) => (
+                      <View key={item.id} style={pantryStyles.pantryItem}>
+                        <View style={pantryStyles.pantryItemContent}>
+                          <Text style={pantryStyles.pantryItemName}>{item.name}</Text>
+                          {item.quantity && item.unit && (
+                            <Text style={pantryStyles.pantryItemQuantity}>
+                              {item.quantity} {item.unit}
+                            </Text>
+                          )}
+                        </View>
+                        <TouchableOpacity
+                          style={pantryStyles.deleteButton}
+                          onPress={() => removePantryItem(item.id)}
+                        >
+                          <Ionicons name="trash-outline" size={20} color={semanticColors.error} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
                   </View>
-                ))}
+                )}
+
+                {/* Quick-add bubbles for ingredients not in pantry */}
+                {quickAddIngredients.length > 0 && (
+                  <View style={pantryStyles.categorySection}>
+                    {pantryItemsInCategory.length > 0 && (
+                      <Text style={pantryStyles.quickAddLabel}>Quick Add</Text>
+                    )}
+                    <View style={pantryStyles.chipContainer}>
+                      {quickAddIngredients.map((ingredient) => (
+                        <TouchableOpacity
+                          key={ingredient.name}
+                          style={pantryStyles.chip}
+                          onPress={() => handleIngredientPress(ingredient)}
+                        >
+                          <Text style={pantryStyles.chipText}>
+                            {ingredient.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
               </View>
-            ))
-          )}
-        </View>
+            );
+          })
+        )}
       </ScrollView>
 
-      {/* Quantity Modal - simplified version */}
+      {/* Quantity Modal */}
       {showQuantityModal && selectedIngredient && (
-        <Modal visible={showQuantityModal} transparent animationType="fade" onRequestClose={() => setShowQuantityModal(false)}>
-          <TouchableWithoutFeedback onPress={() => setShowQuantityModal(false)}>
-            <View style={pantryStyles.modalBackdrop}>
-              <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                <View style={pantryStyles.modalContent}>
-                  <Text style={pantryStyles.modalTitle}>Add {selectedIngredient.name}</Text>
-                  <Text style={pantryStyles.modalSubtitle}>Quantity modal - implement if needed</Text>
-                  <TouchableOpacity style={pantryStyles.modalButtonCancel} onPress={() => setShowQuantityModal(false)}>
-                    <Text style={pantryStyles.modalButtonTextCancel}>Close</Text>
-                  </TouchableOpacity>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
+        <QuantityModal
+          visible={showQuantityModal}
+          ingredient={selectedIngredient}
+          onClose={() => {
+            setShowQuantityModal(false);
+            setSelectedIngredient(null);
+          }}
+          onConfirm={handleQuantityConfirm}
+        />
       )}
     </View>
   );
@@ -352,7 +487,7 @@ export default function Groceries() {
     if (!auth.currentUser) return;
 
     try {
-      const response = await fetch(`${API_BASE}/api/pantry?userID=${auth.currentUser.uid}`);
+      const response = await fetch(`${API_BASE}/api/pantry/${auth.currentUser.uid}`);
       
       if (!response.ok) {
         throw new Error('Failed to load pantry items');
@@ -1443,6 +1578,13 @@ const pantryStyles = StyleSheet.create({
     marginBottom: 12,
     marginTop: 8,
   },
+  quickAddLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    marginBottom: 12,
+    marginTop: 8,
+  },
   chipContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1575,5 +1717,69 @@ const pantryStyles = StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
     fontWeight: '500',
+  },
+  modalButtonConfirm: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+  },
+  modalButtonTextConfirm: {
+    fontSize: 16,
+    color: colors.surface,
+    fontWeight: '600',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'flex-end',
+  },
+  quantityRow: {
+    marginBottom: 24,
+  },
+  quantityInput: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border || '#E0E0E0',
+    fontSize: 18,
+    color: colors.textPrimary,
+    marginBottom: 12,
+  },
+  unitScroll: {
+    maxHeight: 50,
+  },
+  unitChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border || '#E0E0E0',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  unitChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  unitChipText: {
+    fontSize: 14,
+    color: colors.textPrimary,
+  },
+  unitChipTextActive: {
+    color: colors.surface,
+  },
+  unitInput: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border || '#E0E0E0',
+    fontSize: 16,
+    color: colors.textPrimary,
   },
 });
