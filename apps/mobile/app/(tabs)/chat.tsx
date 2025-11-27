@@ -29,6 +29,7 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatingRecipe, setGeneratingRecipe] = useState(false);
+  const [recipeProgress, setRecipeProgress] = useState<string | null>(null);
   const [savingEditedRecipe, setSavingEditedRecipe] = useState(false);
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
   const [currentIntent, setCurrentIntent] = useState<IntentExtractionResult | null>(null);
@@ -152,6 +153,9 @@ export default function ChatScreen() {
       // Clear current intent when starting new conversation
       setCurrentIntent(null);
       
+      console.log(`🔄 Creating conversation for user ${auth.currentUser.uid}...`);
+      console.log(`📡 API Base URL: ${API_BASE}`);
+      
       const response = await fetch(`${API_BASE}/api/chat?action=conversation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -161,15 +165,26 @@ export default function ChatScreen() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error(`❌ Conversation creation failed (${response.status}):`, errorData);
+        console.error(`📡 Full response:`, response);
         
         if (response.status === 503) {
           throw new Error('Chat service unavailable - Cosmos DB not configured. Check your .env file.');
         }
-        throw new Error(`Failed to create conversation: ${response.statusText}`);
+        
+        // Check if it's a network error
+        if (response.status === 0 || !response.status) {
+          throw new Error(`Cannot connect to API server. Make sure the API is running at ${API_BASE}`);
+        }
+        
+        throw new Error(`Failed to create conversation: ${response.statusText || 'Unknown error'}`);
       }
 
       const data = await response.json();
       console.log('🎯 Conversation created:', data);
+      
+      if (!data.conversation || !data.conversation.conversationID) {
+        throw new Error('Invalid response from server - no conversation ID received');
+      }
       
       const newConvID = data.conversation.conversationID;
       setConversationID(newConvID);
@@ -191,7 +206,15 @@ export default function ChatScreen() {
     } catch (error) {
       console.error('❌ Failed to start conversation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      Alert.alert('Error', `Failed to start chat: ${errorMessage}`);
+      
+      // More helpful error messages
+      let userFriendlyMessage = errorMessage;
+      if (errorMessage.includes('Cannot connect') || errorMessage.includes('fetch')) {
+        userFriendlyMessage = `Cannot connect to API server at ${API_BASE}. Make sure the API is running or set EXPO_PUBLIC_API_URL in your .env file.`;
+      }
+      
+      Alert.alert('Error', `Failed to start chat: ${userFriendlyMessage}`);
+      throw error; // Re-throw so caller knows it failed
     }
   };
 
@@ -231,7 +254,36 @@ export default function ChatScreen() {
   };
 
   const sendMessage = async () => {
-    if (!inputText.trim() || !conversationID) return;
+    if (!inputText.trim()) {
+      return;
+    }
+
+    // If no conversation exists, try to create one first
+    if (!conversationID) {
+      console.log('⚠️ No conversationID, attempting to create one...');
+      try {
+        await startNewConversation();
+        // Wait a bit for conversation to be created
+        await new Promise(resolve => setTimeout(resolve, 300));
+        // If still no conversationID after creation attempt, show error
+        if (!conversationID) {
+          Alert.alert(
+            'Error',
+            'Failed to start conversation. Please check your connection and try again.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } catch (error) {
+        console.error('❌ Failed to create conversation for message:', error);
+        Alert.alert(
+          'Error',
+          'Failed to start conversation. Please try the "New Chat" button first.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+    }
 
     const userMessage = inputText.trim();
     setInputText('');
@@ -339,13 +391,25 @@ export default function ChatScreen() {
     if (!conversationID || !auth.currentUser) return;
 
     setGeneratingRecipe(true);
+    setRecipeProgress('🔍 Starting recipe search...');
 
     try {
       console.log(`🔄 Generating recipe for conversation ${conversationID}...`);
       
-      // Recipe generation involves AI calls and web scraping, allow up to 45 seconds
+      // Recipe generation involves AI calls, web scraping, formatting, and substitutions
+      // Allow up to 120 seconds (2 minutes) to account for multiple recipe attempts
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 second timeout
+      
+      // Simulate progress updates (we can't get real-time updates from the API without websockets)
+      const progressInterval = setInterval(() => {
+        setRecipeProgress(prev => {
+          if (prev === '🔍 Starting recipe search...') return '🔍 Searching for recipes matching your preferences...';
+          if (prev === '🔍 Searching for recipes matching your preferences...') return '📄 Getting recipe details...';
+          if (prev === '📄 Getting recipe details...') return '🎨 Formatting recipe...';
+          return prev; // Keep last message
+        });
+      }, 5000); // Update every 5 seconds
       
       let response: Response;
       try {
@@ -358,6 +422,8 @@ export default function ChatScreen() {
           }),
           signal: controller.signal,
         });
+        
+        clearInterval(progressInterval);
 
         clearTimeout(timeoutId);
 
@@ -368,14 +434,24 @@ export default function ChatScreen() {
           if (response.status === 400 && errorData.error === 'Off-topic conversation') {
             Alert.alert(
               'Not About Cooking',
-              'Let\'s talk about food! Ask me about a dish or cuisine you\'d like to cook.',
+              errorData.message || 'Let\'s talk about food! Ask me about a dish or cuisine you\'d like to cook.',
               [{ text: 'OK' }]
             );
             return;
           }
           
-          console.error('Recipe generation failed:', response.status, errorData);
-          throw new Error(errorData.error || `Failed to generate recipe: ${response.statusText}`);
+          // Handle Cosmos DB unavailable
+          if (response.status === 503) {
+            const errorMessage = errorData.message || errorData.error || 'Recipe generation service not available. Please check your database configuration.';
+            console.error('❌ Recipe generation service unavailable:', errorData);
+            Alert.alert('Service Unavailable', errorMessage);
+            return;
+          }
+          
+          // Extract user-friendly error message
+          const errorMessage = errorData.message || errorData.error || errorData.details || `Failed to generate recipe: ${response.statusText}`;
+          console.error('❌ Recipe generation failed:', response.status, errorData);
+          throw new Error(errorMessage);
         }
       } catch (error: any) {
         clearTimeout(timeoutId);
@@ -387,6 +463,7 @@ export default function ChatScreen() {
 
       const data = await response.json();
       console.log('✅ Recipe generated:', data);
+      setRecipeProgress(null);
       
       Alert.alert(
         'Recipe Found!',
@@ -398,12 +475,33 @@ export default function ChatScreen() {
       );
     } catch (error) {
       console.error('❌ Failed to generate recipe:', error);
-      Alert.alert(
-        'Error',
-        'Failed to generate recipe. Make sure you\'ve discussed a specific dish in the conversation and that Cosmos DB is configured.'
-      );
+      setRecipeProgress(null);
+      
+      // Extract error message
+      let errorMessage = 'Failed to generate recipe.';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      // Provide helpful context based on error message
+      if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+        errorMessage = 'Recipe generation took too long. Please try again with a simpler request.';
+      } else if (errorMessage.includes('Cannot connect') || errorMessage.includes('fetch')) {
+        errorMessage = `Cannot connect to API server at ${API_BASE}. Make sure the API is running.`;
+      } else if (errorMessage.includes('Cosmos') || errorMessage.includes('Database')) {
+        errorMessage = 'Database service unavailable. Please check your configuration.';
+      } else if (!errorMessage.includes('Failed to generate recipe')) {
+        // If we have a specific error message, use it; otherwise add context
+        errorMessage = `Failed to generate recipe: ${errorMessage}`;
+      }
+      
+      Alert.alert('Error', errorMessage);
     } finally {
       setGeneratingRecipe(false);
+      setRecipeProgress(null);
     }
   };
 
@@ -555,6 +653,12 @@ export default function ChatScreen() {
           <View style={styles.loadingBubble}>
             <ActivityIndicator size="small" color={colors.textSecondary} />
             <Text style={styles.loadingText}>Thinking...</Text>
+          </View>
+        )}
+        {generatingRecipe && recipeProgress && (
+          <View style={styles.loadingBubble}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.loadingText}>{recipeProgress}</Text>
           </View>
         )}
       </ScrollView>

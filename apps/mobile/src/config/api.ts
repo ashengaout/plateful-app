@@ -12,16 +12,25 @@ import { Platform } from 'react-native';
 export const getApiBaseUrl = (): string => {
   // Check for explicit API URL override (useful for production)
   if (process.env.EXPO_PUBLIC_API_URL) {
+    if (__DEV__) {
+      console.log('🌐 Using API URL from EXPO_PUBLIC_API_URL:', process.env.EXPO_PUBLIC_API_URL);
+    }
     return process.env.EXPO_PUBLIC_API_URL;
   }
 
   // Platform-specific defaults for development
-  return Platform.select({
+  const defaultUrl = Platform.select({
     web: 'http://localhost:3001',
     android: 'http://10.0.2.2:3001', // Android emulator special IP
     ios: 'http://localhost:3001',     // iOS simulator
     default: 'http://localhost:3001',
   }) || 'http://localhost:3001';
+
+  if (__DEV__) {
+    console.log('🌐 Using default API URL:', defaultUrl);
+  }
+
+  return defaultUrl;
 };
 
 /**

@@ -5,7 +5,11 @@ import type { RecipeSearchResult, FoodProfile } from '@plateful/shared';
  * Search for recipes using Anthropic's web search
  * Returns multiple recipe options from different websites
  */
-export async function searchRecipe(searchQuery: string, profile?: FoodProfile | null): Promise<RecipeSearchResult[]> {
+export async function searchRecipe(
+  searchQuery: string, 
+  profile?: FoodProfile | null,
+  allowSubstitutions: boolean = false
+): Promise<RecipeSearchResult[]> {
   // Initialize client with current environment variables
   const client = new Anthropic({ 
     apiKey: process.env.ANTHROPIC_API_KEY 
@@ -43,7 +47,13 @@ export async function searchRecipe(searchQuery: string, profile?: FoodProfile | 
       restrictions.push(`without: ${profile.restrictions.join(', ')}`);
     }
     if (restrictions.length > 0) {
-      restrictionsNote = `\n\nIMPORTANT: The recipe must be ${restrictions.join(', ')}. Filter out any recipes that contain these.`;
+      if (allowSubstitutions) {
+        // Relaxed search: note restrictions but don't filter (we'll substitute later)
+        restrictionsNote = `\n\nNOTE: User has dietary restrictions (${restrictions.join(', ')}). Return recipes even if they contain these - substitutions will be handled automatically.`;
+      } else {
+        // Strict search: filter out recipes with restricted ingredients
+        restrictionsNote = `\n\nIMPORTANT: The recipe must be ${restrictions.join(', ')}. Filter out any recipes that contain these.`;
+      }
     }
   }
 
@@ -61,15 +71,15 @@ export async function searchRecipe(searchQuery: string, profile?: FoodProfile | 
   }
 
   // Build equipment context for search
+  // NOTE: Preferred equipment is NOT included in search query - it's too restrictive
+  // (e.g., searching "noodle dish dutch oven" would fail). Preferred equipment is used
+  // for post-search ranking instead.
   let equipmentNote = '';
   if (profile) {
     if (profile.unavailableEquipment && profile.unavailableEquipment.length > 0) {
       equipmentNote = `\n\nCRITICAL: Do NOT return recipes that require: ${profile.unavailableEquipment.join(', ')}. These are hard filters - exclude any recipe that needs these.`;
     }
-    if (profile.preferredEquipment && profile.preferredEquipment.length > 0) {
-      const preferredNote = `\n\nPREFERENCE: Prefer recipes that use: ${profile.preferredEquipment.join(', ')}. This is a soft preference - still return other recipes if they're good matches.`;
-      equipmentNote += preferredNote;
-    }
+    // Preferred equipment is handled post-search for ranking, not in the search query
   }
 
   const response = await (client.messages.create as any)({
@@ -122,13 +132,46 @@ Return ONLY the JSON array, no other text. Example:
     }]
   });
 
-  // Extract the response text
+  // Extract the response text - handle all block types
   let resultText = '';
+  console.log(`📦 Response content structure: ${response.content?.length || 0} blocks`);
+  
   for (const block of response.content) {
     if (block.type === 'text') {
       resultText += block.text;
+    } else if (block.type === 'tool_use') {
+      // Tool use blocks - log for debugging
+      console.log(`🔧 Found tool_use block: ${block.name || 'unknown'}`);
+      // Tool results should come in subsequent tool_result blocks
+    } else if (block.type === 'tool_result') {
+      // Tool result blocks might contain search results
+      console.log(`📋 Found tool_result block`);
+      if (block.content && typeof block.content === 'string') {
+        resultText += block.content;
+      } else if (Array.isArray(block.content)) {
+        // Handle array of content blocks
+        for (const contentBlock of block.content) {
+          if (contentBlock.type === 'text') {
+            resultText += contentBlock.text;
+          }
+        }
+      }
+    } else {
+      // Unknown block type - log for debugging
+      console.log(`⚠️ Unknown block type: ${(block as any).type || 'undefined'}`);
     }
   }
+
+  // Log the raw response for debugging
+  if (!resultText || resultText.trim().length === 0) {
+    console.error('❌ Empty response from recipe search');
+    console.error('Response content structure:', JSON.stringify(response.content, null, 2));
+    console.error('Response object keys:', Object.keys(response));
+    throw new Error('Empty response from recipe search API');
+  }
+
+  console.log(`📄 Raw search response (first 500 chars): ${resultText.substring(0, 500)}`);
+  console.log(`📄 Full response length: ${resultText.length} characters`);
 
   try {
     // Remove markdown code blocks if present
@@ -144,25 +187,81 @@ Return ONLY the JSON array, no other text. Example:
     const validResults = results.filter(r => r && r.url && r.title);
     
     if (validResults.length === 0) {
-      throw new Error('No valid recipe results found');
+      console.warn('⚠️ Parsed JSON but no valid results found');
+      console.warn('Parsed results:', JSON.stringify(results, null, 2));
+      throw new Error('No valid recipe results found in parsed JSON');
     }
 
     console.log(`✅ Found ${validResults.length} recipe options from different websites`);
     return validResults;
   } catch (parseError) {
     // Fallback: Try to extract URLs from text
-    console.warn('Failed to parse search result as JSON, attempting URL extraction');
+    console.warn('⚠️ Failed to parse search result as JSON, attempting URL extraction');
+    console.warn('Parse error:', parseError instanceof Error ? parseError.message : String(parseError));
+    console.warn('Response text:', resultText.substring(0, 1000));
     
-    const urlMatches = resultText.match(/https?:\/\/[^\s<>"{}|\\^`[\]]+/g);
+    // Try multiple URL patterns - be more aggressive in extraction
+    const urlPatterns = [
+      /https?:\/\/[^\s<>"{}|\\^`[\]]+/g,  // Standard URL pattern
+      /https?:\/\/[^\s,;)]+/g,            // More permissive
+      /https?:\/\/[^\s"']+/g,             // Even more permissive (stop at quotes)
+      /(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/[^\s<>"{}|\\^`[\]]*)?/g  // Domain pattern with path
+    ];
+    
+    let urlMatches: string[] = [];
+    for (const pattern of urlPatterns) {
+      const matches = resultText.match(pattern);
+      if (matches && matches.length > 0) {
+        urlMatches = matches;
+        console.log(`🔍 Found ${matches.length} URLs with pattern: ${pattern}`);
+        break;
+      }
+    }
+    
+    // Clean up URLs (remove trailing punctuation that might have been captured)
+    urlMatches = urlMatches.map(url => {
+      // Remove trailing punctuation that's not part of the URL
+      return url.replace(/[.,;:!?]+$/, '');
+    }).filter(url => {
+      // Basic URL validation
+      try {
+        new URL(url.startsWith('http') ? url : `https://${url}`);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    
     if (urlMatches && urlMatches.length > 0) {
-      return urlMatches.map(url => ({
-        title: searchQuery,
-        url: url,
-        snippet: 'Recipe found via web search'
-      }));
+      // Filter to only recipe-like URLs (contain recipe, cooking, food keywords or common recipe sites)
+      // But be less strict - if we have URLs, use them
+      const recipeUrls = urlMatches.filter(url => {
+        const lowerUrl = url.toLowerCase();
+        // Accept if it's from a known recipe site OR contains recipe keywords
+        return lowerUrl.includes('recipe') || 
+               lowerUrl.includes('cooking') || 
+               lowerUrl.includes('food') ||
+               lowerUrl.includes('/recipes/') ||
+               /(food52|seriouseats|allrecipes|foodnetwork|tasty|bonappetit|epicurious|thekitchn|bbcgoodfood|jamieoliver|delish|tasteofhome|simplyrecipes|minimalistbaker|cookieandkate|pinchofyum)\.com/.test(lowerUrl);
+      });
+      
+      // Use recipe URLs if found, otherwise use any URLs (they might still be recipes)
+      const finalUrls = recipeUrls.length > 0 ? recipeUrls : urlMatches.slice(0, 5);
+      
+      console.log(`✅ Extracted ${finalUrls.length} URLs from text fallback (${recipeUrls.length} recipe-like)`);
+      return finalUrls.map(url => {
+        const cleanUrl = url.startsWith('http') ? url : `https://${url}`;
+        return {
+          title: searchQuery,
+          url: cleanUrl,
+          snippet: 'Recipe found via web search'
+        };
+      });
     }
 
-    throw new Error('No recipe URL found in search results');
+    console.error('❌ No recipe URL found in search results');
+    console.error('Full response text:', resultText);
+    throw new Error('No recipe URL found in search results. The search API may have returned an unexpected format.');
   }
 }
 

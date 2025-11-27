@@ -56,3 +56,4 @@ export function detectPantryCategory(ingredientName: string): PantryCategory {
   return 'other';
 }
 
+

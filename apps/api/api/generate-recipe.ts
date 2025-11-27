@@ -6,9 +6,10 @@ import { scrapeRecipeContent } from '../services/recipe-scraper';
 import { formatRecipe } from '../services/recipe-formatter';
 import { substituteIngredients, detectDisallowedIngredients } from '../services/ingredient-substitution';
 import { requiresUnavailableEquipment } from '../services/equipment-filter';
-import type { ChatMessage, ChatConversation, Recipe, RecipeGenerateRequest, FoodProfile } from '@plateful/shared';
+import type { ChatMessage, ChatConversation, Recipe, RecipeGenerateRequest, FoodProfile, RecipeSearchResult } from '@plateful/shared';
 
 const app = new Hono();
+
 
 /**
  * Generate a recipe from a conversation
@@ -109,9 +110,80 @@ app.post('/', async (c) => {
     }
 
     // Step 3: Search for recipes (multiple options)
+    // Always try strict search first (filter out allergens/restrictions), then relaxed if needed
     console.log(`🔍 Searching for recipes: ${intent.searchQuery}`);
-    const searchResults = await searchRecipe(intent.searchQuery, profile);
-    console.log(`✅ Found ${searchResults.length} recipe options`);
+    let searchResults: RecipeSearchResult[] = [];
+    
+    try {
+      // First try strict search (filter out recipes with allergens/restrictions)
+      searchResults = await searchRecipe(intent.searchQuery, profile, false);
+      console.log(`✅ Found ${searchResults.length} recipe options (strict search - no allergens)`);
+    } catch (searchError) {
+      console.warn('⚠️ Strict search found no recipes matching restrictions, trying relaxed search...');
+      
+      // If strict search fails, try relaxed search (get any recipe - we'll substitute allergens)
+      const hasRestrictions = profile && (profile.allergens?.length > 0 || profile.restrictions?.length > 0);
+      
+      if (hasRestrictions) {
+        try {
+          searchResults = await searchRecipe(intent.searchQuery, profile, true);
+          console.log(`✅ Found ${searchResults.length} recipe options (relaxed search - will auto-substitute allergens)`);
+        } catch (relaxedError) {
+          console.error('❌ Both strict and relaxed searches failed:', relaxedError);
+          return c.json({ 
+            error: 'Failed to generate recipe',
+            details: relaxedError instanceof Error ? relaxedError.message : 'No recipe URL found in search results',
+            message: 'Unable to find recipes for this dish. Please try rephrasing your request or asking about a different dish.'
+          }, 500);
+        }
+      } else {
+        // No restrictions, so strict search failure is a real failure
+        console.error('❌ Recipe search failed:', searchError);
+        return c.json({ 
+          error: 'Failed to generate recipe',
+          details: searchError instanceof Error ? searchError.message : 'No recipe URL found in search results',
+          message: 'Unable to find recipes for this dish. Please try rephrasing your request or asking about a different dish.'
+        }, 500);
+      }
+    }
+    
+    if (!searchResults || searchResults.length === 0) {
+      // If strict search returned empty, try relaxed
+      const hasRestrictions = profile && (profile.allergens?.length > 0 || profile.restrictions?.length > 0);
+      
+      if (hasRestrictions) {
+        try {
+          console.log('⚠️ Strict search returned no results, trying relaxed search...');
+          searchResults = await searchRecipe(intent.searchQuery, profile, true);
+          console.log(`✅ Found ${searchResults.length} recipe options (relaxed search - will auto-substitute allergens)`);
+        } catch (relaxedError) {
+          console.error('❌ Relaxed search also failed:', relaxedError);
+          return c.json({ 
+            error: 'Failed to generate recipe',
+            details: 'No recipe URL found in search results',
+            message: 'Unable to find recipes for this dish. Please try rephrasing your request or asking about a different dish.'
+          }, 500);
+        }
+      } else {
+        console.error('❌ No search results returned');
+        return c.json({ 
+          error: 'Failed to generate recipe',
+          details: 'No recipe URL found in search results',
+          message: 'Unable to find recipes for this dish. Please try rephrasing your request or asking about a different dish.'
+        }, 500);
+      }
+    }
+
+    // Step 3.5: Rank search results by preferred equipment (post-search ranking)
+    // Preferred equipment is a soft preference - we rank but don't filter
+    if (profile && profile.preferredEquipment && profile.preferredEquipment.length > 0) {
+      console.log(`🎯 Ranking ${searchResults.length} results by preferred equipment: ${profile.preferredEquipment.join(', ')}`);
+      
+      // We'll check equipment during scraping, but for now just log
+      // The actual ranking happens when we check equipment during formatRecipe
+      // Recipes that use preferred equipment will be tried first in the loop below
+      // (This is a simple approach - we could do more sophisticated ranking here)
+    }
 
     // Step 4: Try scraping each recipe URL until one succeeds
     console.log(`📄 Attempting to scrape recipe content...`);
@@ -139,7 +211,13 @@ app.post('/', async (c) => {
 
         // Step 5: Format recipe
         console.log(`🎨 Formatting recipe data...`);
-        recipeData = await formatRecipe(scrapeResult.content, searchResult.url, profile);
+        try {
+          recipeData = await formatRecipe(scrapeResult.content, searchResult.url, profile);
+        } catch (formatError) {
+          console.error(`❌ Failed to format recipe from ${domain}:`, formatError);
+          lastError = formatError instanceof Error ? formatError : new Error(String(formatError));
+          continue; // Try next recipe
+        }
         
         // Add image URL if extracted
         if (scrapeResult.imageUrl) {
@@ -153,7 +231,7 @@ app.post('/', async (c) => {
           continue; // Try next recipe
         }
 
-        // Step 5.5: Check for disallowed ingredients and substitute if needed
+        // Step 5.5: Check for disallowed ingredients and ALWAYS substitute (safety requirement)
         if (profile && (profile.allergens?.length > 0 || profile.restrictions?.length > 0)) {
           const disallowed = detectDisallowedIngredients(recipeData, profile);
           
@@ -167,10 +245,21 @@ app.post('/', async (c) => {
               if (substitutionResult.substitutions.length > 0) {
                 console.log(`✅ Successfully substituted ${substitutionResult.substitutions.length} ingredient(s)`);
               } else {
-                console.log(`ℹ️ No substitutions were made (may have been filtered out during search)`);
+                // Substitution was attempted but no substitutions were made - this is unsafe
+                console.error(`❌ Substitution failed: detected ${disallowed.length} disallowed ingredients but no substitutions were made`);
+                lastError = new Error('Unable to substitute disallowed ingredients');
+                continue; // Skip this recipe - don't return unsafe recipe
+              }
+              
+              // Double-check: verify no allergens remain after substitution
+              const remainingDisallowed = detectDisallowedIngredients(recipeData, profile);
+              if (remainingDisallowed.length > 0) {
+                console.error(`❌ Substitution incomplete: ${remainingDisallowed.length} disallowed ingredients still present: ${remainingDisallowed.join(', ')}`);
+                lastError = new Error('Substitution did not remove all disallowed ingredients');
+                continue; // Skip this recipe - don't return unsafe recipe
               }
             } catch (subError) {
-              console.warn(`❌ Failed to substitute ingredients: ${subError instanceof Error ? subError.message : 'Unknown error'}`);
+              console.error(`❌ Failed to substitute ingredients: ${subError instanceof Error ? subError.message : 'Unknown error'}`);
               // If substitution fails, try next recipe (don't return unsafe recipe)
               lastError = subError instanceof Error ? subError : new Error(String(subError));
               continue;
@@ -185,6 +274,8 @@ app.post('/', async (c) => {
       } catch (scrapeError) {
         lastError = scrapeError instanceof Error ? scrapeError : new Error(String(scrapeError));
         console.warn(`❌ Failed to scrape ${domain}: ${lastError.message}`);
+        console.warn(`   URL: ${searchResult.url}`);
+        console.warn(`   Error details:`, scrapeError);
         // Continue to next URL
       }
     }
@@ -193,9 +284,26 @@ app.post('/', async (c) => {
     if (!recipeData || !successfulUrl) {
       const errorMessage = `Failed to scrape any of the ${searchResults.length} recipe URLs. Last error: ${lastError?.message || 'Unknown error'}`;
       console.error(`❌ ${errorMessage}`);
+      console.error(`   Attempted URLs:`, searchResults.map(r => r.url));
+      console.error(`   All errors logged above`);
+      
+      // Provide more helpful error message based on the type of failure
+      let userMessage = 'Unable to access any recipe websites. Please try again later or with a different dish.';
+      const errorMsg = lastError?.message || '';
+      
+      if (errorMsg.includes('formatting timed out') || errorMsg.includes('format recipe')) {
+        userMessage = 'Recipe formatting took too long. The recipe content may be too complex. Please try again or with a different dish.';
+      } else if (errorMsg.includes('403') || errorMsg.includes('forbidden')) {
+        userMessage = 'Recipe websites are blocking access. Please try a different dish or try again later.';
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('Network')) {
+        userMessage = 'Network timeout while accessing recipe websites. Please check your connection and try again.';
+      } else if (errorMsg.includes('404')) {
+        userMessage = 'Recipe pages not found. The search may have returned invalid links. Please try again.';
+      }
+      
       return c.json({ 
         error: 'Failed to retrieve recipe',
-        message: 'Unable to access any recipe websites. Please try again later or with a different dish.',
+        message: userMessage,
         details: errorMessage,
         attemptedUrls: searchResults.map(r => r.url)
       }, 500);

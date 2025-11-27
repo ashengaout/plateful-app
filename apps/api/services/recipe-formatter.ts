@@ -132,14 +132,22 @@ Return a JSON object with this EXACT structure:
 Return ONLY the JSON object, no other text.`;
   }
 
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 4096,
-    messages: [{
-      role: "user",
-      content: prompt
-    }]
+  // Add timeout wrapper for Anthropic API call (60 seconds)
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Recipe formatting timed out after 60 seconds')), 60000);
   });
+
+  const response = await Promise.race([
+    client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 4096,
+      messages: [{
+        role: "user",
+        content: prompt
+      }]
+    }),
+    timeoutPromise
+  ]);
 
   // Extract JSON from response
   let resultText = '';

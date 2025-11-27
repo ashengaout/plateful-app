@@ -15,13 +15,10 @@ export const COMMON_EQUIPMENT = [
   'cast iron Dutch oven',
   'enameled Dutch oven',
   'stockpot',
-  'saucepan',
   'soup pot',
   
   // Pans & Skillets
   'cast iron skillet',
-  'non-stick pan',
-  'frying pan',
   'sauté pan',
   'wok',
   'grill pan',
@@ -44,21 +41,13 @@ export const COMMON_EQUIPMENT = [
   // Specialty Appliances
   'air fryer',
   'toaster oven',
-  'microwave',
   'convection oven',
   'steamer',
-  'rice cooker',
   
   // Grilling & Outdoor
-  'grill',
-  'charcoal grill',
-  'gas grill',
   'smoker',
-  'outdoor grill',
   
   // Small Appliances
-  'food processor',
-  'blender',
   'juicer',
   'spiralizer',
   'mandoline',
@@ -66,7 +55,6 @@ export const COMMON_EQUIPMENT = [
   'bread maker',
   
   // Knives & Tools
-  'chef knife',
   'paring knife',
   'serrated knife',
   'meat thermometer',
@@ -77,7 +65,6 @@ export const COMMON_EQUIPMENT = [
   // Specialty Cookware
   'tagine',
   'paella pan',
-  'wok',
   'carbon steel pan',
   'stainless steel pan',
 ];

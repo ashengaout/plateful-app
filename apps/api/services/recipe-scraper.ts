@@ -90,7 +90,7 @@ export interface ScrapeResult {
 export async function scrapeRecipeContent(url: string): Promise<string>;
 export async function scrapeRecipeContent(url: string, includeImage: true): Promise<ScrapeResult>;
 export async function scrapeRecipeContent(url: string, includeImage?: boolean): Promise<string | ScrapeResult> {
-  const maxRetries = 3;
+  const maxRetries = 2; // Reduced from 3 to fail faster and try more URLs
   let lastError: Error | null = null;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -113,21 +113,29 @@ export async function scrapeRecipeContent(url: string, includeImage?: boolean): 
           'Cache-Control': 'max-age=0',
           'Referer': 'https://www.google.com/' // Add referer to appear more legitimate
         },
-        timeout: 15000, // Reduced timeout
+        timeout: 15000, // 15 second timeout for scraping (fail faster to try more URLs)
         maxRedirects: 5,
         validateStatus: (status) => status >= 200 && status < 500 // Accept 2xx, 3xx, and 4xx but fail on 5xx
       });
       
-      // Handle non-200 status codes
+      // Handle non-200 status codes - don't retry on client errors (4xx)
       if (response.status === 403) {
+        // Don't retry 403 - website is blocking us
         throw new Error(`Access forbidden (403) - website blocking scraper`);
       }
       
       if (response.status === 404) {
+        // Don't retry 404 - page doesn't exist
         throw new Error(`Recipe page not found (404)`);
       }
       
+      if (response.status >= 400 && response.status < 500) {
+        // Don't retry other 4xx errors - client error
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       if (response.status >= 500) {
+        // Retry 5xx errors - server error
         throw new Error(`Server error (${response.status}) - website may be down`);
       }
       
@@ -229,22 +237,38 @@ export async function scrapeRecipeContent(url: string, includeImage?: boolean): 
           const status = error.response.status;
           const statusText = error.response.statusText;
           lastError = new Error(`HTTP ${status}: ${statusText}`);
+          
+          // Don't retry on 4xx errors (client errors) - they won't succeed on retry
+          if (status >= 400 && status < 500) {
+            console.error(`❌ Client error (${status}) - not retrying:`, statusText);
+            throw lastError; // Exit immediately, don't retry
+          }
         } else if (error.request) {
           // Network error (no response received)
-          lastError = new Error(`Network error: No response from server (timeout or connection failed)`);
+          if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+            lastError = new Error(`Network timeout: Request took longer than 15 seconds`);
+          } else {
+            lastError = new Error(`Network error: No response from server (${error.code || 'connection failed'})`);
+          }
         } else {
           // Other axios error
           lastError = new Error(`Request error: ${error.message}`);
         }
       } else {
         lastError = error instanceof Error ? error : new Error(String(error));
+        
+        // Don't retry on certain errors (403, 404, etc.)
+        if (error instanceof Error && (error.message.includes('403') || error.message.includes('404') || error.message.includes('forbidden') || error.message.includes('not found'))) {
+          console.error(`❌ Client error - not retrying:`, error.message);
+          throw error; // Exit immediately, don't retry
+        }
       }
       
       console.error(`❌ Error scraping ${url} (attempt ${attempt}/${maxRetries}):`, lastError.message);
       
       if (attempt < maxRetries) {
-        // Wait before retrying (exponential backoff)
-        const delay = Math.pow(2, attempt) * 1000;
+        // Wait before retrying (shorter delay to fail faster)
+        const delay = 1000; // 1 second delay between retries
         console.log(`Waiting ${delay}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
