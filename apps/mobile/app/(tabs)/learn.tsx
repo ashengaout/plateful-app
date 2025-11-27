@@ -19,12 +19,11 @@ import type { Tutorial, TutorialType, YouTubeTutorial, WrittenTutorial } from '@
 import { colors } from '@plateful/shared';
 import { auth } from '../../src/config/firebase';
 import Header from '../../src/components/Header';
-import API_BASE from '../../src/config/api';
+import { API_BASE } from '../../src/config/api';
 
 type FilterType = 'video' | 'written' | 'either';
 
 export default function LearnScreen() {
-
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<FilterType>('either');
   const [viewMode, setViewMode] = useState<'search' | 'saved'>('search');

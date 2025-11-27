@@ -9,7 +9,7 @@ import { auth } from '../../src/config/firebase';
 import type { FoodProfile, DailyNutritionTotals } from '@plateful/shared';
 import { aggregateDailyNutrition, calculatePercentage, formatNutritionValue } from '../../src/utils/nutrition';
 import { dailyTips } from '../../src/constants/dailyTips';
-import API_BASE from '../../src/config/api';
+import { API_BASE } from '../../src/config/api';
 
 interface DayInfo {
   date: Date;
@@ -281,16 +281,28 @@ export default function Dashboard() {
       const endDateStr = getDateStringInTimezone(endDate, userTimezone);
 
       const [recipesResponse, mealsResponse] = await Promise.all([
+<<<<<<< HEAD
         fetch(`${API_BASE}/api/recipe`),
+=======
+        fetch(`${API_BASE}/api/generate-recipe/user/${auth.currentUser.uid}`).catch(() => null),
+>>>>>>> azure-app-service-deployment
         fetch(`${API_BASE}/api/meal-tracking/user/${auth.currentUser.uid}/range?startDate=${startDateStr}&endDate=${endDateStr}`).catch(() => null),
       ]);
 
-      if (!recipesResponse.ok) {
-        throw new Error('Failed to load recipes');
+      // Handle 503 (service unavailable - Cosmos DB not configured) gracefully
+      let recipes: any[] = [];
+      if (recipesResponse && recipesResponse.ok) {
+        const recipesData = await recipesResponse.json();
+        recipes = recipesData.recipes || [];
+      } else if (recipesResponse && recipesResponse.status === 503) {
+        // Cosmos DB not configured - treat as empty data
+        console.log('Recipe service not available (Cosmos DB not configured)');
+        recipes = [];
+      } else if (recipesResponse && !recipesResponse.ok) {
+        // Other errors - log but don't throw
+        console.warn('Failed to load recipes:', recipesResponse.status, recipesResponse.statusText);
+        recipes = [];
       }
-
-      const recipesData = await recipesResponse.json();
-      const recipes = recipesData.recipes || [];
 
       // Group recipes by date (YYYY-MM-DD) in user's timezone
       const activityByDate = new Set<string>();

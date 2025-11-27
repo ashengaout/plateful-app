@@ -20,6 +20,7 @@ out/
 .expo/
 .expo-shared/
 .vercel/
+.vercel*
 
 # Testing
 coverage/
@@ -52,6 +53,12 @@ firestore-debug.log
 # OS
 Thumbs.db
 
+# Deployment artifacts
+azure-logs/
+azure-logs.zip
+**/deploy.zip
+**/app-logs.zip
+
 # Figma Integration
 tools/figma/.cache/
 tools/figma/exports/
@@ -73,3 +80,4 @@ apps/mobile/ios/
 apps/api/node_modules/
 apps/api/dist/
 apps/api/build/
+

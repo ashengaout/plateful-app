@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getContainer, isCosmosAvailable, generateId } from '../lib/cosmos';
 import type { GroceryList, GroceryItem } from '@plateful/shared';
-import { findDuplicates, mergeIdenticalItems } from '@plateful/shared/src/utils/grocery-grouping';
+import { findDuplicates, mergeIdenticalItems } from '@plateful/shared';
 
 const app = new Hono();
 

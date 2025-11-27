@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx dev-server.ts",
     "build": "tsc",
+    "start": "node dist/apps/api/server.js",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf .vercel dist",
     "check-youtube": "node check-youtube-key.js",

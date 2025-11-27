@@ -23,7 +23,7 @@
 
 ## Architecture Overview
 
-Plateful uses a **serverless-first architecture** combining Firebase Backend-as-a-Service (BaaS) with Vercel's edge functions for custom business logic.
+Plateful uses a **serverless-first architecture** combining Firebase Backend-as-a-Service (BaaS) with Azure App Service (Docker) for custom business logic.
 
 ### System Architecture Diagram
 
@@ -41,29 +41,29 @@ Plateful uses a **serverless-first architecture** combining Firebase Backend-as-
                     ┌────────┴─────────┐
                     │                  │
          ┌──────────▼────────┐    ┌───▼──────────────┐
-         │  Firebase SDK     │    │  Vercel API      │
-         │  (Client)         │    │  (REST/HTTP)     │
+         │  Firebase SDK     │    │  Azure API        │
+         │  (Client)         │    │  (REST/HTTP)      │
          └──────────┬────────┘    └───┬──────────────┘
                     │                  │
 ┌───────────────────▼──────────────────▼─────────────────────────┐
 │                      BACKEND LAYER                             │
 │                                                                │
 │  ┌─────────────────────────────┐    ┌──────────────────────┐   │
-│  │   Firebase Services         │    │   Vercel Functions   │   │
-│  │                             │    │                      │   │
-│  │  • Authentication           │    │  • Custom Routes     │   │
-│  │    - Email/Password         │    │  • Business Logic    │   │
-│  │    - Google OAuth           │    │  • Integrations      │   │
-│  │                             │    │  • Webhooks          │   │
-│  │  • Firestore (NoSQL DB)     │    │                      │   │
-│  │    - Real-time updates      │    │  Runtime: Node 18.x  │   │
-│  │    - Security rules         │    │  Framework: Hono     │   │
-│  │                             │    │                      │   │
+│  │   Firebase Services         │    │   Azure App Service   │   │
+│  │                             │    │   (Docker Container)  │   │
+│  │  • Authentication           │    │                      │   │
+│  │    - Email/Password         │    │  • Custom Routes     │   │
+│  │    - Google OAuth           │    │  • Business Logic    │   │
+│  │                             │    │  • Integrations      │   │
+│  │  • Firestore (NoSQL DB)     │    │  • Webhooks          │   │
+│  │    - Real-time updates      │    │                      │   │
+│  │    - Security rules         │    │  Runtime: Node 20.x  │   │
+│  │                             │    │  Framework: Hono     │   │
 │  │  • Cloud Storage            │    │                      │   │
-│  │    - File uploads           │    │                      │   │
-│  │    - Secure access rules    │    │                      │   │
+│  │    - File uploads           │    │  Region: Azure       │   │
+│  │    - Secure access rules    │    │  (Configurable)      │   │
 │  │                             │    │                      │   │
-│  │  Region: us-central1        │    │  Region: Edge        │   │
+│  │  Region: us-central1        │    │                      │   │
 │  └─────────────────────────────┘    └──────────────────────┘   │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -90,13 +90,13 @@ Plateful uses a **serverless-first architecture** combining Firebase Backend-as-
 
 3. **Custom API Flow:**
    ```
-   Mobile App → HTTP Request → Vercel Edge Function
+   Mobile App → HTTP Request → Azure App Service (Docker)
                             ↓
                     Business Logic Execution
                             ↓
                     Optional Firebase Admin SDK Call
                             ↓
-   Mobile App ← Response ← Vercel Function
+   Mobile App ← Response ← Azure API
    ```
 
 ---
