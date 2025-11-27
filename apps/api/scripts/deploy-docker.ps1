@@ -39,8 +39,8 @@ if ($useACR -eq "y" -or $useACR -eq "Y") {
         }
     }
     
-    $acrLoginServer = az acr show --name $REGISTRY_NAME --resource-group $RESOURCE_GROUP --query loginServer -o tsv
-    $fullImageName = "$acrLoginServer/$DOCKER_IMAGE_NAME:latest"
+    $acrLoginServer = (az acr show --name $REGISTRY_NAME --resource-group $RESOURCE_GROUP --query loginServer -o tsv).Trim()
+    $fullImageName = "${acrLoginServer}/${DOCKER_IMAGE_NAME}:latest"
     
     Write-Host "`nBuilding Docker image..." -ForegroundColor Yellow
     Set-Location $PROJECT_ROOT

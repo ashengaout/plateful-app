@@ -49,7 +49,17 @@ IMPORTANT RULES:
 5. If nutrition data is missing, estimate it and mark as "(estimated by AI)"
 6. Calories MUST be per portion, not total
 7. Keep ingredients and instructions concise and clear
-8. The conversation shows the ORIGINAL recipe and then the MODIFICATIONS - extract the FINAL modified recipe${complianceNote}
+8. The conversation shows the ORIGINAL recipe and then the MODIFICATIONS - extract the FINAL modified recipe
+
+CRITICAL INGREDIENT EXTRACTION RULES:
+- Each ingredient must be COMPLETE and MEANINGFUL - never split compound ingredients
+- Examples of CORRECT extraction:
+  * "2 cups boiling water" → ["2 cups boiling water"] (NOT ["2 cups boiling", "water"])
+  * "1/2 cup chopped onions" → ["1/2 cup chopped onions"] (NOT ["1/2 cup", "chopped", "onions"])
+  * "3 cloves garlic, minced" → ["3 cloves garlic, minced"] (NOT ["3 cloves", "garlic", "minced"])
+- Preparation methods (boiling, chopped, diced, minced, etc.) should be part of the ingredient name or in notes, NEVER separate ingredients
+- If an ingredient has no explicit quantity (e.g., "Rice noodles", "Shrimp"), keep it as a descriptive item without adding quantities
+- Each ingredient string should be a complete, standalone item that makes sense on its own${complianceNote}
 
 Conversation content:
 ---
@@ -85,7 +95,17 @@ IMPORTANT RULES:
 4. If serving count is missing, estimate it and mark as "(estimated by AI)"
 5. If nutrition data is missing, estimate it and mark as "(estimated by AI)"
 6. Calories MUST be per portion, not total
-7. Keep ingredients and instructions concise and clear${complianceNote}
+7. Keep ingredients and instructions concise and clear
+
+CRITICAL INGREDIENT EXTRACTION RULES:
+- Each ingredient must be COMPLETE and MEANINGFUL - never split compound ingredients
+- Examples of CORRECT extraction:
+  * "2 cups boiling water" → ["2 cups boiling water"] (NOT ["2 cups boiling", "water"])
+  * "1/2 cup chopped onions" → ["1/2 cup chopped onions"] (NOT ["1/2 cup", "chopped", "onions"])
+  * "3 cloves garlic, minced" → ["3 cloves garlic, minced"] (NOT ["3 cloves", "garlic", "minced"])
+- Preparation methods (boiling, chopped, diced, minced, etc.) should be part of the ingredient name or in notes, NEVER separate ingredients
+- If an ingredient has no explicit quantity (e.g., "Rice noodles", "Shrimp"), keep it as a descriptive item without adding quantities
+- Each ingredient string should be a complete, standalone item that makes sense on its own${complianceNote}
 
 Scraped content from ${sourceUrl}:
 ---

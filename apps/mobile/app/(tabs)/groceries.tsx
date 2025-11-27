@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, semanticColors } from '@plateful/shared';
 import type { GroceryList, GroceryItem, PantryItem, PantryCategory, CommonIngredient } from '@plateful/shared';
-import { findPantryMatch, COMMON_INGREDIENTS, getIngredientsByCategory, CATEGORY_NAMES } from '@plateful/shared';
+import { findPantryMatch, COMMON_INGREDIENTS, getIngredientsByCategory, CATEGORY_NAMES, detectPantryCategory } from '@plateful/shared';
 import { groupGroceryItems, type GroupedGroceryItems } from '@plateful/shared/src/utils/grocery-grouping';
 import { ScrollView, TouchableWithoutFeedback } from 'react-native';
 import Header from '../../src/components/Header';
@@ -309,6 +309,7 @@ export default function Groceries() {
   const [newListName, setNewListName] = useState('');
   const [loadingCreate, setLoadingCreate] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
+  const [addingToPantry, setAddingToPantry] = useState(false);
 
   useEffect(() => {
     if (auth.currentUser) {
@@ -415,6 +416,60 @@ export default function Groceries() {
     } catch (error) {
       console.error('Failed to toggle item:', error);
       Alert.alert('Error', 'Failed to update item');
+    }
+  };
+
+  const addCompletedItemsToPantry = async () => {
+    if (!auth.currentUser || !selectedList) return;
+
+    const completedItems = selectedList.items.filter(item => item.completed);
+    if (completedItems.length === 0) {
+      Alert.alert('No Items', 'No completed items to add to pantry');
+      return;
+    }
+
+    setAddingToPantry(true);
+    try {
+      // Map completed items to pantry item format
+      const pantryItems = completedItems.map(item => ({
+        name: item.name,
+        category: item.category || detectPantryCategory(item.name),
+        quantity: item.quantity,
+        unit: item.unit,
+      }));
+
+      const response = await fetch(`${API_BASE}/api/pantry/${auth.currentUser.uid}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: pantryItems }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.details || 'Failed to add items to pantry');
+      }
+
+      const data = await response.json();
+      const addedCount = data.items?.length || 0;
+      const duplicateCount = data.duplicates?.length || 0;
+
+      // Reload pantry items
+      await loadPantryItems();
+
+      // Show success message
+      if (duplicateCount > 0) {
+        Alert.alert(
+          'Items Added',
+          `Added ${addedCount} item(s) to pantry. ${duplicateCount} duplicate(s) skipped.`
+        );
+      } else {
+        Alert.alert('Success', `Added ${addedCount} item(s) to pantry`);
+      }
+    } catch (error: any) {
+      console.error('Failed to add items to pantry:', error);
+      Alert.alert('Error', error.message || 'Failed to add items to pantry');
+    } finally {
+      setAddingToPantry(false);
     }
   };
 
@@ -720,20 +775,37 @@ export default function Groceries() {
             {/* Completed Items Section */}
             {completedItems.length > 0 && (
               <View style={styles.completedSection}>
-                <TouchableOpacity
-                  style={styles.completedHeader}
-                  onPress={() => setCompletedExpanded(!completedExpanded)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.completedHeaderText}>
-                    Completed Items ({completedItems.length})
-                  </Text>
-                  <Ionicons
-                    name={completedExpanded ? 'chevron-up' : 'chevron-down'}
-                    size={20}
-                    color={colors.textSecondary}
-                  />
-                </TouchableOpacity>
+                <View style={styles.completedHeader}>
+                  <TouchableOpacity
+                    style={styles.completedHeaderLeft}
+                    onPress={() => setCompletedExpanded(!completedExpanded)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.completedHeaderText}>
+                      Completed Items ({completedItems.length})
+                    </Text>
+                    <Ionicons
+                      name={completedExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={20}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.addToPantryButton, addingToPantry && styles.addToPantryButtonDisabled]}
+                    onPress={addCompletedItemsToPantry}
+                    disabled={addingToPantry}
+                    activeOpacity={0.7}
+                  >
+                    {addingToPantry ? (
+                      <ActivityIndicator size="small" color={colors.surface} />
+                    ) : (
+                      <>
+                        <Ionicons name="basket-outline" size={16} color={colors.surface} />
+                        <Text style={styles.addToPantryButtonText}>Add to Pantry</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
                 {completedExpanded && (
                   <View style={styles.completedContent}>
                     {renderGroupedItems(groupedCompletedItems)}
@@ -1150,10 +1222,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 12,
   },
+  completedHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
   completedHeaderText: {
     fontSize: 14,
     fontWeight: '600',
     color: colors.textSecondary,
+    marginRight: 8,
+  },
+  addToPantryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 6,
+  },
+  addToPantryButtonDisabled: {
+    opacity: 0.6,
+  },
+  addToPantryButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.surface,
   },
   completedContent: {
     paddingTop: 8,

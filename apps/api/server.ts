@@ -17,6 +17,7 @@ import pantryRoutes from './api/pantry';
 import groceryRoutes from './api/grocery';
 import tutorialsRoutes from './api/tutorials';
 import mealTrackingRoutes from './api/meal-tracking';
+import ingredientParserRoutes from './api/ingredient-parser';
 
 // Load environment variables
 dotenv.config();
@@ -53,6 +54,7 @@ app.route('/api/pantry', pantryRoutes);
 app.route('/api/grocery', groceryRoutes);
 app.route('/api/tutorials', tutorialsRoutes);
 app.route('/api/meal-tracking', mealTrackingRoutes);
+app.route('/api/parse-ingredients', ingredientParserRoutes);
 
 // Initialize Anthropic client
 const client = new Anthropic({ 

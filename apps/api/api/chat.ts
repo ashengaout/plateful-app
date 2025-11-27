@@ -5,6 +5,501 @@ import type { ChatMessage, ChatConversation, ChatMessageCreateRequest, Conversat
 
 const app = new Hono();
 
+// Add query parameter support for legacy mobile app compatibility
+app.all('*', async (c, next) => {
+  const action = c.req.query('action');
+  
+  // If no action query param, continue to REST routes
+  if (!action) {
+    return next();
+  }
+
+  // Handle legacy query parameter format
+  const conversationID = c.req.query('conversationID');
+  
+  try {
+    // GET /api/chat?action=messages&conversationID=xxx
+    if (c.req.method === 'GET' && action === 'messages' && conversationID) {
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Chat service not available' }, 503);
+      }
+      
+      const container = getContainer('chatMessages');
+      if (!container) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      const { resources: messages } = await container.items
+        .query<ChatMessage>({
+          query: 'SELECT * FROM c WHERE c.conversationID = @conversationID ORDER BY c.messageIndex ASC',
+          parameters: [{ name: '@conversationID', value: conversationID }],
+        })
+        .fetchAll();
+
+      return c.json({ messages });
+    }
+
+    // GET /api/chat?action=conversation&conversationID=xxx
+    if (c.req.method === 'GET' && action === 'conversation' && conversationID) {
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Chat service not available' }, 503);
+      }
+      
+      const container = getContainer('chatConversations');
+      if (!container) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      const { resource: conversation } = await container
+        .item(conversationID, conversationID)
+        .read<ChatConversation>();
+
+      if (!conversation) {
+        return c.json({ error: 'Conversation not found' }, 404);
+      }
+
+      return c.json({ conversation });
+    }
+
+    // POST /api/chat?action=conversation
+    if (c.req.method === 'POST' && action === 'conversation') {
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Chat service not available' }, 503);
+      }
+
+      const body = await c.req.json<ConversationCreateRequest>();
+      const { userID } = body;
+
+      if (!userID) {
+        return c.json({ error: 'userID is required' }, 400);
+      }
+
+      const newConversationID = generateId('conv');
+      const now = new Date().toISOString();
+
+      const conversation: ChatConversation = {
+        id: newConversationID,
+        conversationID: newConversationID,
+        userID,
+        status: 'exploring',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const container = getContainer('chatConversations');
+      if (!container) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      await container.items.create(conversation);
+      return c.json({ conversation }, 201);
+    }
+
+    // POST /api/chat?action=message
+    if (c.req.method === 'POST' && action === 'message') {
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Chat service not available' }, 503);
+      }
+
+      const body = await c.req.json<ChatMessageCreateRequest>();
+      const { conversationID: msgConversationID, role, content } = body;
+
+      if (!msgConversationID || !role || !content) {
+        return c.json({ error: 'conversationID, role, and content are required' }, 400);
+      }
+
+      const messageContainer = getContainer('chatMessages');
+      const conversationContainer = getContainer('chatConversations');
+      
+      if (!messageContainer || !conversationContainer) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      const { resources: existingMessages } = await messageContainer.items
+        .query<ChatMessage>({
+          query: 'SELECT * FROM c WHERE c.conversationID = @conversationID ORDER BY c.messageIndex DESC OFFSET 0 LIMIT 1',
+          parameters: [{ name: '@conversationID', value: msgConversationID }],
+        })
+        .fetchAll();
+
+      const messageIndex = existingMessages.length > 0 ? existingMessages[0].messageIndex + 1 : 0;
+      const messageId = generateId('msg');
+
+      const message: ChatMessage = {
+        id: messageId,
+        conversationID: msgConversationID,
+        messageIndex,
+        role,
+        content,
+        timestamp: new Date().toISOString(),
+      };
+
+      await messageContainer.items.create(message);
+
+      const { resource: conversation } = await conversationContainer
+        .item(msgConversationID, msgConversationID)
+        .read<ChatConversation>();
+
+      if (conversation) {
+        conversation.updatedAt = new Date().toISOString();
+        await conversationContainer.item(msgConversationID, msgConversationID).replace(conversation);
+      }
+
+      return c.json({ message }, 201);
+    }
+
+    // POST /api/chat?action=ai-response
+    if (c.req.method === 'POST' && action === 'ai-response') {
+      // Handle ai-response - the route handler will process it
+      // We need to rewrite the path so it matches /ai-response
+      // For now, we'll handle it directly here by calling next() and hoping
+      // the route matches, but actually we need to handle it fully
+      // Since the path is /api/chat, it won't match /ai-response
+      // So we need to handle it here
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Chat service not available' }, 503);
+      }
+
+      const body = await c.req.json();
+      const { conversationID, userID } = body;
+
+      if (!conversationID) {
+        return c.json({ error: 'conversationID is required' }, 400);
+      }
+
+      const messagesContainer = getContainer('chatMessages');
+      if (!messagesContainer) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      const { resources: messages } = await messagesContainer.items
+        .query<ChatMessage>({
+          query: 'SELECT * FROM c WHERE c.conversationID = @conversationID ORDER BY c.messageIndex ASC',
+          parameters: [{ name: '@conversationID', value: conversationID }],
+        })
+        .fetchAll();
+
+      if (messages.length === 0) {
+        return c.json({ error: 'No messages found in conversation' }, 404);
+      }
+
+      let profile: FoodProfile | null = null;
+      if (userID) {
+        const profileContainer = getContainer('userProfiles');
+        if (profileContainer) {
+          try {
+            const { resource } = await profileContainer.item(userID, userID).read<FoodProfile>();
+            profile = resource || null;
+          } catch (error) {
+            // Profile not found, continue without it
+          }
+        }
+      }
+
+      const client = new Anthropic({ 
+        apiKey: process.env.ANTHROPIC_API_KEY 
+      });
+
+      const conversationHistory = messages.map(msg => ({
+        role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
+        content: msg.content
+      }));
+
+      const { resource: conversation } = await getContainer('chatConversations')
+        ?.item(conversationID, conversationID)
+        .read<ChatConversation>() || { resource: null };
+
+      let recipeContext = '';
+      if (conversation?.status === 'editing_recipe' && conversation.editingRecipeID && userID) {
+        const recipesContainer = getContainer('recipes');
+        if (recipesContainer) {
+          try {
+            const { resource: recipe } = await recipesContainer
+              .item(conversation.editingRecipeID, userID)
+              .read();
+            if (recipe) {
+              recipeContext = `\n\n📝 RECIPE EDITING MODE:\nYou are helping the user edit this recipe:\n` +
+                `Title: ${recipe.recipeData.title}\n` +
+                `Description: ${recipe.recipeData.description || 'N/A'}\n` +
+                `Portions: ${recipe.recipeData.portions}\n` +
+                `Ingredients: ${recipe.recipeData.ingredients.join(', ')}\n` +
+                `Instructions: ${recipe.recipeData.instructions.join('; ')}\n\n` +
+                `When the user requests changes, acknowledge them and describe the modified recipe. ` +
+                `After the user confirms the edits, they will save it as a new recipe. ` +
+                `DO NOT generate a new recipe from scratch - modify the existing one based on their requests.`;
+            }
+          } catch (error) {
+            // Could not load recipe context
+          }
+        }
+      }
+
+      let systemPrompt = "You are a helpful recipe assistant for the Plateful app. Help users discover delicious recipes through friendly conversation. Ask follow-up questions to understand their preferences, suggest dishes, and guide them toward finding the perfect recipe. Keep responses conversational, helpful, and food-focused." + recipeContext;
+      
+      if (profile) {
+        const restrictions: string[] = [];
+        const allergens: string[] = [];
+        
+        if (profile.restrictions && profile.restrictions.length > 0) {
+          restrictions.push(...profile.restrictions);
+        }
+        if (profile.allergens && profile.allergens.length > 0) {
+          allergens.push(...profile.allergens);
+        }
+
+        if (restrictions.length > 0 || allergens.length > 0) {
+          systemPrompt += `\n\n⚠️⚠️⚠️ CRITICAL DIETARY RESTRICTIONS - ABSOLUTE ENFORCEMENT REQUIRED ⚠️⚠️⚠️\n`;
+          systemPrompt += `THESE RESTRICTIONS ARE NON-NEGOTIABLE AND MUST BE STRICTLY ENFORCED IN EVERY RESPONSE.\n\n`;
+          
+          if (restrictions.length > 0) {
+            systemPrompt += `🚫 ABSOLUTELY FORBIDDEN FOODS/RESTRICTIONS: ${restrictions.join(', ').toUpperCase()}\n\n`;
+          }
+          
+          if (allergens.length > 0) {
+            systemPrompt += `\n\n🚨🚨🚨 CRITICAL ALLERGENS - LIFE-THREATENING SAFETY ISSUE 🚨🚨🚨\n`;
+            systemPrompt += `⚠️ ALLERGENS TO AVOID: ${allergens.join(', ').toUpperCase()}\n\n`;
+          }
+        }
+
+        if (profile.likes && profile.likes.length > 0) {
+          systemPrompt += `\n✅ User prefers: ${profile.likes.join(', ')}. You can emphasize these preferences when relevant.\n`;
+        }
+        if (profile.dislikes && profile.dislikes.length > 0) {
+          systemPrompt += `\n❌ User dislikes: ${profile.dislikes.join(', ')}. Avoid emphasizing these.\n`;
+        }
+      }
+
+      const response = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 500,
+        system: systemPrompt,
+        messages: conversationHistory
+      });
+
+      let aiResponse = '';
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          aiResponse += block.text;
+        }
+      }
+
+      return c.json({ response: aiResponse });
+    }
+
+    // POST /api/chat?action=load-recipe
+    if (c.req.method === 'POST' && action === 'load-recipe') {
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Chat service not available' }, 503);
+      }
+
+      const body = await c.req.json();
+      const { conversationID, recipeID, userID } = body;
+
+      if (!conversationID || !recipeID || !userID) {
+        return c.json({ error: 'conversationID, recipeID, and userID are required' }, 400);
+      }
+
+      const conversationContainer = getContainer('chatConversations');
+      const recipesContainer = getContainer('recipes');
+      
+      if (!conversationContainer || !recipesContainer) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      const { resource: recipe } = await recipesContainer
+        .item(recipeID, userID)
+        .read();
+      
+      if (!recipe) {
+        return c.json({ error: 'Recipe not found' }, 404);
+      }
+
+      if (recipe.userID !== userID) {
+        return c.json({ error: 'Unauthorized: Recipe does not belong to user' }, 403);
+      }
+
+      const { resource: conversation } = await conversationContainer
+        .item(conversationID, conversationID)
+        .read<ChatConversation>();
+
+      if (!conversation) {
+        return c.json({ error: 'Conversation not found' }, 404);
+      }
+
+      conversation.status = 'editing_recipe';
+      conversation.editingRecipeID = recipeID;
+      conversation.updatedAt = new Date().toISOString();
+      await conversationContainer.item(conversationID, conversationID).replace(conversation);
+
+      const messageContainer = getContainer('chatMessages');
+      if (messageContainer) {
+        const { resources: existingMessages } = await messageContainer.items
+          .query({
+            query: 'SELECT * FROM c WHERE c.conversationID = @conversationID ORDER BY c.messageIndex DESC OFFSET 0 LIMIT 1',
+            parameters: [{ name: '@conversationID', value: conversationID }],
+          })
+          .fetchAll();
+
+        const messageIndex = existingMessages.length > 0 ? existingMessages[0].messageIndex + 1 : 0;
+        const messageId = generateId('msg');
+
+        const message = {
+          id: messageId,
+          conversationID,
+          messageIndex,
+          role: 'assistant',
+          content: `I've loaded your recipe "${recipe.recipeData.title}". How would you like to modify it? For example, you can ask me to make it vegetarian, adjust the servings, change ingredients, or modify the instructions.`,
+          timestamp: new Date().toISOString(),
+        };
+
+        await messageContainer.items.create(message);
+      }
+
+      return c.json({ 
+        success: true, 
+        conversation,
+        recipe: {
+          id: recipe.recipeID,
+          title: recipe.recipeData.title,
+        }
+      }, 200);
+    }
+
+    // POST /api/chat?action=save-edited-recipe
+    if (c.req.method === 'POST' && action === 'save-edited-recipe') {
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Chat service not available' }, 503);
+      }
+
+      const body = await c.req.json();
+      const { conversationID, userID } = body;
+
+      if (!conversationID || !userID) {
+        return c.json({ error: 'conversationID and userID are required' }, 400);
+      }
+
+      const conversationContainer = getContainer('chatConversations');
+      const recipesContainer = getContainer('recipes');
+      const messagesContainer = getContainer('chatMessages');
+      
+      if (!conversationContainer || !recipesContainer || !messagesContainer) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      const { resource: conversation } = await conversationContainer
+        .item(conversationID, conversationID)
+        .read<ChatConversation>();
+
+      if (!conversation || conversation.status !== 'editing_recipe' || !conversation.editingRecipeID) {
+        return c.json({ error: 'No recipe being edited in this conversation' }, 400);
+      }
+
+      const { resource: originalRecipe } = await recipesContainer
+        .item(conversation.editingRecipeID, userID)
+        .read();
+
+      if (!originalRecipe) {
+        return c.json({ error: 'Original recipe not found' }, 404);
+      }
+
+      const { resources: messages } = await messagesContainer.items
+        .query({
+          query: 'SELECT * FROM c WHERE c.conversationID = @conversationID ORDER BY c.messageIndex ASC',
+          parameters: [{ name: '@conversationID', value: conversationID }],
+        })
+        .fetchAll();
+
+      if (messages.length === 0) {
+        return c.json({ error: 'No messages in conversation' }, 400);
+      }
+
+      let profile: FoodProfile | null = null;
+      const profileContainer = getContainer('userProfiles');
+      if (profileContainer) {
+        try {
+          const { resource } = await profileContainer.item(userID, userID).read<FoodProfile>();
+          profile = resource || null;
+        } catch (error) {
+          // Profile not found, continue without it
+        }
+      }
+
+      const conversationText = messages
+        .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+        .join('\n\n');
+
+      const { formatRecipe } = await import('../services/recipe-formatter');
+      
+      const scrapedContent = `Modified Recipe Conversation:\n\n${conversationText}\n\n` +
+        `Original Recipe:\n` +
+        `Title: ${originalRecipe.recipeData.title}\n` +
+        `Description: ${originalRecipe.recipeData.description}\n` +
+        `Portions: ${originalRecipe.recipeData.portions}\n` +
+        `Ingredients: ${originalRecipe.recipeData.ingredients.join(', ')}\n` +
+        `Instructions: ${originalRecipe.recipeData.instructions.join('; ')}`;
+
+      let modifiedRecipeData: RecipeData;
+      try {
+        modifiedRecipeData = await formatRecipe(scrapedContent, originalRecipe.recipeData.sourceUrl, profile);
+      } catch (formatError) {
+        const errorMessage = formatError instanceof Error ? formatError.message : 'Unknown formatting error';
+        return c.json({ 
+          error: `Failed to format edited recipe: ${errorMessage}. The AI may have had trouble extracting the recipe changes from the conversation.` 
+        }, 500);
+      }
+
+      if (!modifiedRecipeData.imageUrl && originalRecipe.recipeData.imageUrl) {
+        modifiedRecipeData.imageUrl = originalRecipe.recipeData.imageUrl;
+      }
+
+      const recipeID = generateId('recipe');
+      const now = new Date().toISOString();
+
+      const newRecipe: Recipe = {
+        id: recipeID,
+        userID,
+        recipeID,
+        recipeNameLower: modifiedRecipeData.title.toLowerCase(),
+        sourceUrlLower: originalRecipe.sourceUrlLower,
+        recipeData: modifiedRecipeData,
+        isSaved: false,
+        isEdited: true,
+        originalRecipeID: originalRecipe.recipeID,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      try {
+        await recipesContainer.items.create(newRecipe);
+      } catch (createError) {
+        return c.json({ 
+          error: `Failed to save recipe to database: ${createError instanceof Error ? createError.message : 'Unknown error'}` 
+        }, 500);
+      }
+
+      try {
+        conversation.status = 'recipe_found';
+        conversation.recipeID = recipeID;
+        conversation.updatedAt = new Date().toISOString();
+        await conversationContainer.item(conversationID, conversationID).replace(conversation);
+      } catch (updateError) {
+        // Don't fail if conversation update fails - recipe was already saved
+      }
+
+      return c.json({ 
+        recipe: newRecipe,
+        message: 'Recipe saved successfully!'
+      }, 201);
+    }
+
+    // Unknown action, continue to REST routes
+    return next();
+  } catch (error) {
+    console.error('Error handling query parameter action:', error);
+    return c.json({ error: 'Failed to process request' }, 500);
+  }
+});
+
 /**
  * Create a new conversation
  * POST /chat/conversation

@@ -281,11 +281,7 @@ export default function Dashboard() {
       const endDateStr = getDateStringInTimezone(endDate, userTimezone);
 
       const [recipesResponse, mealsResponse] = await Promise.all([
-<<<<<<< HEAD
-        fetch(`${API_BASE}/api/recipe`),
-=======
         fetch(`${API_BASE}/api/generate-recipe/user/${auth.currentUser.uid}`).catch(() => null),
->>>>>>> azure-app-service-deployment
         fetch(`${API_BASE}/api/meal-tracking/user/${auth.currentUser.uid}/range?startDate=${startDateStr}&endDate=${endDateStr}`).catch(() => null),
       ]);
 

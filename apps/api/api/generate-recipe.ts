@@ -5,6 +5,7 @@ import { searchRecipe } from '../services/recipe-search';
 import { scrapeRecipeContent } from '../services/recipe-scraper';
 import { formatRecipe } from '../services/recipe-formatter';
 import { substituteIngredients, detectDisallowedIngredients } from '../services/ingredient-substitution';
+import { requiresUnavailableEquipment } from '../services/equipment-filter';
 import type { ChatMessage, ChatConversation, Recipe, RecipeGenerateRequest, FoodProfile } from '@plateful/shared';
 
 const app = new Hono();
@@ -143,6 +144,13 @@ app.post('/', async (c) => {
         // Add image URL if extracted
         if (scrapeResult.imageUrl) {
           recipeData.imageUrl = scrapeResult.imageUrl;
+        }
+
+        // Step 5.25: Check for unavailable equipment (hard filter)
+        if (profile && requiresUnavailableEquipment(recipeData, profile)) {
+          console.log(`🚫 Recipe requires unavailable equipment, skipping...`);
+          lastError = new Error('Recipe requires unavailable equipment');
+          continue; // Try next recipe
         }
 
         // Step 5.5: Check for disallowed ingredients and substitute if needed

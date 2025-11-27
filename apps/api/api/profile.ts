@@ -61,7 +61,7 @@ app.put('/:userID', async (c) => {
     console.log(`📝 Processing profile update for user: ${userID}`);
     
     const body = await c.req.json<Partial<FoodProfile>>();
-    const { likes = [], dislikes = [], allergens = [], restrictions = [], displayName, timezone, cookingProficiency, defaultServingSize, dailyMacroTargets } = body;
+    const { likes = [], dislikes = [], allergens = [], restrictions = [], preferredEquipment, unavailableEquipment, displayName, timezone, cookingProficiency, defaultServingSize, dailyMacroTargets } = body;
 
     const container = getContainer('userProfiles');
     if (!container) {
@@ -100,6 +100,8 @@ app.put('/:userID', async (c) => {
       dislikes: Array.isArray(dislikes) ? dislikes : [],
       allergens: Array.isArray(allergens) ? allergens : [],
       restrictions: Array.isArray(restrictions) ? restrictions : [],
+      preferredEquipment: preferredEquipment !== undefined ? (Array.isArray(preferredEquipment) ? preferredEquipment : []) : existingProfile?.preferredEquipment,
+      unavailableEquipment: unavailableEquipment !== undefined ? (Array.isArray(unavailableEquipment) ? unavailableEquipment : []) : existingProfile?.unavailableEquipment,
       createdAt: existingProfile?.createdAt || now,
       updatedAt: now,
     };

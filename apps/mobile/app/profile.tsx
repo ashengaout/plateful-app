@@ -27,6 +27,7 @@ import {
   COMMON_DISLIKES,
   COMMON_ALLERGENS,
   COMMON_RESTRICTIONS,
+  COMMON_EQUIPMENT,
 } from '@plateful/shared';
 
 // Comprehensive international timezones grouped by region
@@ -170,10 +171,6 @@ ALL_TIMEZONES.forEach(tz => {
   TIMEZONE_OFFSETS.set(tz.value, getUTCOffset(tz.value));
 });
 
-<<<<<<< HEAD
-
-=======
->>>>>>> azure-app-service-deployment
 type TabType = 'info' | 'preferences' | 'macros';
 
 interface TagInputProps {
@@ -410,6 +407,10 @@ export default function ProfileScreen() {
   const [dislikesCustom, setDislikesCustom] = useState<string[]>([]);
   const [allergensCustom, setAllergensCustom] = useState<string[]>([]);
   const [restrictionsCustom, setRestrictionsCustom] = useState<string[]>([]);
+  const [preferredEquipment, setPreferredEquipment] = useState<string[]>([]);
+  const [unavailableEquipment, setUnavailableEquipment] = useState<string[]>([]);
+  const [preferredEquipmentCustom, setPreferredEquipmentCustom] = useState<string[]>([]);
+  const [unavailableEquipmentCustom, setUnavailableEquipmentCustom] = useState<string[]>([]);
   const [displayName, setDisplayName] = useState('');
   const [timezone, setTimezone] = useState('America/New_York');
   const [cookingProficiency, setCookingProficiency] = useState<number>(3); // Default to Intermediate
@@ -496,6 +497,19 @@ export default function ProfileScreen() {
         setAllergensCustom(allergensCustom_);
         setRestrictions([...restrictionsCommon, ...restrictionsCustom_]);
         setRestrictionsCustom(restrictionsCustom_);
+
+        // Load equipment preferences
+        const preferredEquipmentList = loadedProfile.preferredEquipment || [];
+        const preferredCommon = preferredEquipmentList.filter(e => COMMON_EQUIPMENT.includes(e));
+        const preferredCustom_ = preferredEquipmentList.filter(e => !COMMON_EQUIPMENT.includes(e));
+        setPreferredEquipment([...preferredCommon, ...preferredCustom_]);
+        setPreferredEquipmentCustom(preferredCustom_);
+
+        const unavailableEquipmentList = loadedProfile.unavailableEquipment || [];
+        const unavailableCommon = unavailableEquipmentList.filter(e => COMMON_EQUIPMENT.includes(e));
+        const unavailableCustom_ = unavailableEquipmentList.filter(e => !COMMON_EQUIPMENT.includes(e));
+        setUnavailableEquipment([...unavailableCommon, ...unavailableCustom_]);
+        setUnavailableEquipmentCustom(unavailableCustom_);
       } else if (response.status === 404) {
         setProfile(null);
       }
@@ -524,6 +538,8 @@ export default function ProfileScreen() {
       const allDislikes = dislikes;
       const allAllergens = allergens;
       const allRestrictions = restrictions;
+      const allPreferredEquipment = preferredEquipment;
+      const allUnavailableEquipment = unavailableEquipment;
 
       const url = `${API_BASE}/api/profile/${user.uid}`;
       
@@ -573,6 +589,8 @@ export default function ProfileScreen() {
           dislikes: allDislikes,
           allergens: allAllergens,
           restrictions: allRestrictions,
+          preferredEquipment: allPreferredEquipment,
+          unavailableEquipment: allUnavailableEquipment,
         }),
       });
 
@@ -823,6 +841,26 @@ export default function ProfileScreen() {
               restrictionsCustom,
               setRestrictionsCustom,
               (item) => toggleSelection(item, restrictions, setRestrictions)
+            )}
+
+            {renderPillSection(
+              'Preferred Equipment',
+              COMMON_EQUIPMENT,
+              preferredEquipment,
+              (item) => toggleSelection(item, preferredEquipment, setPreferredEquipment),
+              preferredEquipmentCustom,
+              setPreferredEquipmentCustom,
+              (item) => toggleSelection(item, preferredEquipment, setPreferredEquipment)
+            )}
+
+            {renderPillSection(
+              'Equipment I Don\'t Have',
+              COMMON_EQUIPMENT,
+              unavailableEquipment,
+              (item) => toggleSelection(item, unavailableEquipment, setUnavailableEquipment),
+              unavailableEquipmentCustom,
+              setUnavailableEquipmentCustom,
+              (item) => toggleSelection(item, unavailableEquipment, setUnavailableEquipment)
             )}
           </>
         )}

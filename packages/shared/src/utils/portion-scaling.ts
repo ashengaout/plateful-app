@@ -433,6 +433,17 @@ export function scaleIngredient(
   // Parse the ingredient
   const parsed = parseIngredient(ingredient);
 
+  // Check if this is a descriptive ingredient without explicit quantity/unit
+  // Descriptive ingredients like "Rice noodles", "Shrimp", "Eggs" should not be scaled
+  const isDescriptiveIngredient = !parsed.unit && 
+                                   parsed.quantity === 1 && 
+                                   ingredient.trim().toLowerCase() === parsed.name.toLowerCase().trim();
+  
+  if (isDescriptiveIngredient) {
+    // This is a descriptive ingredient without explicit quantity - don't scale it
+    return ingredient;
+  }
+
   // If we couldn't parse a quantity (still 1 with no unit), check if we should scale it
   // For non-standard units or count items without units, we can still scale the quantity
   if (parsed.quantity === 1 && !parsed.unit && ingredient.trim() !== parsed.name) {
@@ -448,10 +459,22 @@ export function scaleIngredient(
   // Calculate scale factor
   const scaleFactor = calculateScaleFactor(originalPortions, targetPortions);
   
-  // Only scale if we have a valid parsed quantity
+  // Only scale if we have a valid parsed quantity AND a unit
+  // Items without units should not be scaled to avoid "0.75 shrimp" type results
   if (!parsed.quantity || isNaN(parsed.quantity) || parsed.quantity <= 0) {
     // Can't scale invalid quantity, return original
     return ingredient;
+  }
+
+  // If there's no unit and the quantity is the default (1), don't scale
+  // This prevents scaling descriptive ingredients that were parsed with default quantity=1
+  if (!parsed.unit && parsed.quantity === 1) {
+    // Check if the original ingredient string actually had a number
+    const hasNumberInOriginal = /\d/.test(ingredient);
+    if (!hasNumberInOriginal) {
+      // No number in original, this is a descriptive ingredient - don't scale
+      return ingredient;
+    }
   }
   
   // Scale the quantity

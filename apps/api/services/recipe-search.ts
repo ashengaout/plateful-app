@@ -60,6 +60,18 @@ export async function searchRecipe(searchQuery: string, profile?: FoodProfile | 
     // Level 3: No special context (neutral)
   }
 
+  // Build equipment context for search
+  let equipmentNote = '';
+  if (profile) {
+    if (profile.unavailableEquipment && profile.unavailableEquipment.length > 0) {
+      equipmentNote = `\n\nCRITICAL: Do NOT return recipes that require: ${profile.unavailableEquipment.join(', ')}. These are hard filters - exclude any recipe that needs these.`;
+    }
+    if (profile.preferredEquipment && profile.preferredEquipment.length > 0) {
+      const preferredNote = `\n\nPREFERENCE: Prefer recipes that use: ${profile.preferredEquipment.join(', ')}. This is a soft preference - still return other recipes if they're good matches.`;
+      equipmentNote += preferredNote;
+    }
+  }
+
   const response = await (client.messages.create as any)({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 2048,
@@ -86,7 +98,7 @@ export async function searchRecipe(searchQuery: string, profile?: FoodProfile | 
     ],
     messages: [{
       role: "user",
-      content: `Search for: ${modifiedSearchQuery}${restrictionsNote}${proficiencyNote}
+      content: `Search for: ${modifiedSearchQuery}${restrictionsNote}${proficiencyNote}${equipmentNote}
 
 
 Find a specific recipe page URL (not a homepage or category page) from any reliable cooking website.

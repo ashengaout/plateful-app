@@ -62,6 +62,7 @@ function AddToGroceryModal({ visible, recipe, currentPortionSize, onClose, onSuc
   const [ingredients, setIngredients] = useState<IngredientItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingLists, setLoadingLists] = useState(true);
+  const [parsingIngredients, setParsingIngredients] = useState(false);
 
   useEffect(() => {
     if (visible && recipe && auth.currentUser) {
@@ -114,7 +115,7 @@ function AddToGroceryModal({ visible, recipe, currentPortionSize, onClose, onSuc
     }
   };
 
-  const parseRecipeIngredients = () => {
+  const parseRecipeIngredients = async () => {
     if (!recipe) return;
 
     // Scale ingredients if portion size is different from original
@@ -124,26 +125,163 @@ function AddToGroceryModal({ visible, recipe, currentPortionSize, onClose, onSuc
     const shouldScale = targetPortions !== originalPortions;
 
     // Scale ingredients before parsing
-    const ingredientsToParse = shouldScale
+    let ingredientsToParse = shouldScale
       ? recipe.recipeData.ingredients.map(ing => {
           const scaled = scaleIngredient(ing, originalPortions, targetPortions);
           return scaled;
         })
       : recipe.recipeData.ingredients;
 
-    // Parse the (scaled) ingredient strings
-    const parsed = parseIngredients(ingredientsToParse);
+    // Filter out obviously malformed ingredients (preparation words, empty strings, etc.)
+    const preparationWords = new Set([
+      'boiling', 'sliced', 'minced', 'chopped', 'diced', 'grated', 'crushed', 
+      'ground', 'whole', 'pieces', 'cubed', 'julienned', 'shredded', 'pureed',
+      'mashed', 'whipped', 'beaten', 'separated', 'strained', 'drained',
+      'peeled', 'seeded', 'stemmed', 'trimmed', 'cleaned', 'washed'
+    ]);
     
-    const ingredientItems: IngredientItem[] = parsed.map(item => {
-      const pantryMatch = findPantryMatch(item.name, pantryItems);
-      return {
-        ...item,
-        checked: pantryMatch.matchType === 'exact' ? true : true, // Default all checked, exact matches auto-checked
-        pantryMatch,
-      };
+    ingredientsToParse = ingredientsToParse.filter((ing, index) => {
+      if (!ing || typeof ing !== 'string') return false;
+      const trimmed = ing.trim();
+      if (!trimmed || trimmed.length < 2) return false;
+      
+      const lower = trimmed.toLowerCase();
+      
+      // Filter out ingredients that are just preparation words
+      if (preparationWords.has(lower)) {
+        // Special case: if "boiling" has a unit (like "cups"), it might be "boiling water"
+        // Try to merge with previous ingredient or fix it
+        const hasUnit = /\b(cups?|tbsp|tsp|oz|lb|g|kg|ml|l)\b/i.test(trimmed);
+        if (hasUnit && index > 0) {
+          // This might be a fragment - check if previous ingredient could be merged
+          const prevIng = ingredientsToParse[index - 1];
+          if (prevIng && typeof prevIng === 'string') {
+            // If previous ingredient ends with a number/unit, this might be a continuation
+            // For now, we'll filter it out and let the AI parser handle it
+            console.warn(`⚠️ Detected likely incomplete ingredient: "${trimmed}" (index ${index})`);
+          }
+        }
+        return false;
+      }
+      
+      // Filter out ingredients that are just numbers or fractions
+      if (/^[\d\s\/\-\.]+$/.test(trimmed)) return false;
+      
+      // Filter out ingredients that are just punctuation or special characters
+      if (/^[^\w\s]+$/.test(trimmed)) return false;
+      
+      // Detect incomplete ingredients: preparation word + unit but no ingredient name
+      // Pattern: "quantity unit preparation" without a noun (e.g., "2 cups boiling")
+      const hasQuantityAndUnit = /^\d+[\s\/\-\.]*\d*\s*(cups?|tbsp|tsp|oz|lb|g|kg|ml|l|pieces?|cloves?)\s+[a-z]+$/i.test(trimmed);
+      if (hasQuantityAndUnit) {
+        const words = trimmed.split(/\s+/);
+        const lastWord = words[words.length - 1]?.toLowerCase();
+        if (lastWord && preparationWords.has(lastWord)) {
+          // This is likely incomplete (e.g., "2 cups boiling" should be "2 cups boiling water")
+          console.warn(`⚠️ Detected likely incomplete ingredient: "${trimmed}" - missing ingredient name`);
+          // Don't filter it out - let AI parser try to fix it
+        }
+      }
+      
+      return true;
     });
 
-    setIngredients(ingredientItems);
+    // Log raw ingredients to debug parsing issues
+    console.log('📋 Raw ingredients from recipe:', recipe.recipeData.ingredients);
+    console.log('📋 Ingredients to parse (after scaling and filtering):', ingredientsToParse);
+
+    setParsingIngredients(true);
+
+    try {
+      // Try AI parser first
+      console.log('🧠 Calling AI ingredient parser with', ingredientsToParse.length, 'ingredients');
+      const response = await fetch(`${API_BASE}/api/parse-ingredients`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ingredients: ingredientsToParse }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const parsed = data.parsed || [];
+        
+        if (!parsed || parsed.length === 0) {
+          throw new Error('AI parser returned empty results');
+        }
+
+        console.log('✅ AI parser succeeded, parsed', parsed.length, 'ingredients');
+        
+        const ingredientItems: IngredientItem[] = parsed.map((item: any) => {
+          const pantryMatch = findPantryMatch(item.name, pantryItems);
+          return {
+            ...item,
+            checked: pantryMatch.matchType === 'exact' ? true : true, // Default all checked, exact matches auto-checked
+            pantryMatch,
+          };
+        });
+
+        setIngredients(ingredientItems);
+        setParsingIngredients(false);
+        return;
+      } else {
+        // Try to get error details from response
+        let errorMessage = `AI parser failed: ${response.status} ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+            if (errorData.details) {
+              errorMessage += ` - ${errorData.details}`;
+            }
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (parseError) {
+          // If we can't parse the error response, use the status text
+          console.warn('Could not parse error response:', parseError);
+        }
+        console.error('❌ AI parser failed with status', response.status, errorMessage);
+        throw new Error(errorMessage);
+      }
+    } catch (error: any) {
+      console.error('❌ AI parser error:', error);
+      
+      // Show error to user instead of silently falling back to bad parser
+      Alert.alert(
+        'Parsing Error',
+        `Failed to parse ingredients with AI: ${error.message || 'Unknown error'}\n\nPlease try again or contact support if the issue persists.`,
+        [{ text: 'OK' }]
+      );
+      
+      // Still try local parser as last resort, but warn user
+      console.warn('⚠️ Falling back to local parser (may produce poor results)');
+      const parsed = parseIngredients(ingredientsToParse);
+      
+      // Filter out obviously bad results (ingredients that are just preparation words)
+      const preparationWords = new Set(['boiling', 'sliced', 'minced', 'chopped', 'diced', 'grated', 'crushed', 'ground', 'whole', 'pieces']);
+      const filtered = parsed.filter(item => {
+        const nameLower = item.name.toLowerCase().trim();
+        return nameLower.length > 2 && !preparationWords.has(nameLower);
+      });
+      
+      if (filtered.length === 0) {
+        // If filtering removed everything, use original but warn
+        console.warn('⚠️ All ingredients filtered out, using original parse results');
+      }
+      
+      const ingredientItems: IngredientItem[] = (filtered.length > 0 ? filtered : parsed).map(item => {
+        const pantryMatch = findPantryMatch(item.name, pantryItems);
+        return {
+          ...item,
+          checked: pantryMatch.matchType === 'exact' ? true : true,
+          pantryMatch,
+        };
+      });
+
+      setIngredients(ingredientItems);
+    } finally {
+      setParsingIngredients(false);
+    }
   };
 
   const toggleIngredient = (index: number) => {
@@ -352,10 +490,16 @@ function AddToGroceryModal({ visible, recipe, currentPortionSize, onClose, onSuc
 
               {/* Ingredients Selection */}
               <Text style={addGroceryStyles.sectionTitle}>Select Ingredients</Text>
-              <FlatList
-                data={ingredients}
-                keyExtractor={(item, index) => `${item.name}-${index}`}
-                renderItem={({ item, index }) => {
+              {parsingIngredients ? (
+                <View style={addGroceryStyles.parsingContainer}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={addGroceryStyles.parsingText}>Parsing ingredients...</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={ingredients}
+                  keyExtractor={(item, index) => `${item.name}-${index}`}
+                  renderItem={({ item, index }) => {
                   const isExactMatch = item.pantryMatch?.matchType === 'exact';
                   const isFuzzyMatch = item.pantryMatch?.matchType === 'fuzzy';
 
@@ -406,6 +550,7 @@ function AddToGroceryModal({ visible, recipe, currentPortionSize, onClose, onSuc
                 style={addGroceryStyles.ingredientsList}
                 nestedScrollEnabled
               />
+              )}
 
               {/* Action Buttons */}
               <View style={addGroceryStyles.actionButtons}>
@@ -2960,6 +3105,18 @@ const addGroceryStyles = StyleSheet.create({
   loadingContainer: {
     padding: 40,
     alignItems: 'center',
+  },
+  parsingContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  parsingText: {
+    fontSize: 14,
+    color: colors.textSecondary,
   },
   sectionTitle: {
     fontSize: 16,

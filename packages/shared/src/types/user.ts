@@ -32,6 +32,8 @@ export interface FoodProfile {
   dislikes: string[];
   allergens: string[];
   restrictions: string[];
+  preferredEquipment?: string[]; // Soft preference (prefer but not required)
+  unavailableEquipment?: string[]; // Hard filter (exclude recipes requiring these)
   createdAt: string;
   updatedAt: string;
 }
