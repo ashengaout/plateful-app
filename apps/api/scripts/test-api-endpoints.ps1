@@ -167,3 +167,5 @@ if ($needsDB) {
 Write-Host "`n💡 Tip: Configure Cosmos DB to enable all endpoints" -ForegroundColor Cyan
 Write-Host ""
 
+
+

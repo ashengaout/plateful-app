@@ -27,3 +27,5 @@ Write-Host "  cd apps/api" -ForegroundColor Cyan
 Write-Host "  docker-compose up" -ForegroundColor Cyan
 
 
+
+
