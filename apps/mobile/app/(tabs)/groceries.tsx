@@ -332,7 +332,7 @@ export default function Groceries() {
 
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/api/grocery?userID=${auth.currentUser.uid}&action=lists`);
+      const response = await fetch(`${API_BASE}/api/grocery/${auth.currentUser.uid}/lists`);
       
       if (!response.ok) {
         throw new Error('Failed to load grocery lists');
@@ -369,7 +369,7 @@ export default function Groceries() {
     if (!auth.currentUser) return;
 
     try {
-      const response = await fetch(`${API_BASE}/api/grocery?userID=${auth.currentUser.uid}&action=list&listID=${listID}`);
+      const response = await fetch(`${API_BASE}/api/grocery/${auth.currentUser.uid}/lists/${listID}`);
       
       if (!response.ok) {
         throw new Error('Failed to load list items');
@@ -390,7 +390,7 @@ export default function Groceries() {
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/grocery?userID=${auth.currentUser.uid}&action=updateItem&listID=${selectedList.id}&itemID=${item.id}`,
+        `${API_BASE}/api/grocery/${auth.currentUser.uid}/lists/${selectedList.id}/items/${item.id}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -401,7 +401,8 @@ export default function Groceries() {
       );
 
       if (!response.ok) {
-        throw new Error('Failed to update item');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to update item');
       }
 
       const data = await response.json();
@@ -413,9 +414,9 @@ export default function Groceries() {
         );
         setSelectedList({ ...selectedList, items: updatedItems });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to toggle item:', error);
-      Alert.alert('Error', 'Failed to update item');
+      Alert.alert('Error', error.message || 'Failed to update item');
     }
   };
 

@@ -18,6 +18,252 @@ app.get('/', async (c) => {
   return c.json({ status: 'ok', service: 'grocery' });
 });
 
+// Add query parameter support for legacy mobile app compatibility
+app.all('*', async (c, next) => {
+  const action = c.req.query('action');
+  const userID = c.req.query('userID');
+  const listID = c.req.query('listID');
+  
+  // If no action query param, continue to REST routes
+  if (!action || !userID) {
+    return next();
+  }
+
+  try {
+    // GET /api/grocery?userID=xxx&action=lists
+    if (c.req.method === 'GET' && action === 'lists') {
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Grocery service not available' }, 503);
+      }
+
+      const container = getContainer('groceryLists');
+      
+      if (!container) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      // Query all lists for this user
+      const { resources } = await container.items
+        .query({
+          query: 'SELECT * FROM c WHERE c.userID = @userID ORDER BY c.createdAt DESC',
+          parameters: [{ name: '@userID', value: userID }],
+        })
+        .fetchAll();
+
+      const itemsContainer = getContainer('groceryItems');
+      
+      // Convert to GroceryList format and count items for each list
+      const lists = await Promise.all((resources || []).map(async (doc: any) => {
+        // Count items for this list
+        let itemCount = 0;
+        if (itemsContainer) {
+          try {
+            const { resources: itemResources } = await itemsContainer.items
+              .query({
+                query: 'SELECT * FROM c WHERE c.listID = @listID',
+                parameters: [{ name: '@listID', value: doc.id }],
+              })
+              .fetchAll();
+            
+            itemCount = itemResources?.length ?? 0;
+          } catch (error) {
+            console.error(`Error counting items for list ${doc.id}:`, error);
+            itemCount = 0;
+          }
+        }
+
+        return {
+          id: doc.id,
+          listID: doc.listID || doc.id,
+          name: doc.name,
+          items: [],
+          itemCount,
+          userID: doc.userID,
+          sharedWith: doc.sharedWith || [],
+          createdAt: doc.createdAt,
+          updatedAt: doc.updatedAt,
+        };
+      }));
+
+      return c.json({ lists });
+    }
+
+    // GET /api/grocery?userID=xxx&action=list&listID=xxx
+    if (c.req.method === 'GET' && action === 'list' && listID) {
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Grocery service not available' }, 503);
+      }
+
+      const listsContainer = getContainer('groceryLists');
+      const itemsContainer = getContainer('groceryItems');
+      
+      if (!listsContainer || !itemsContainer) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      // Get the list
+      let listDoc: any;
+      try {
+        const { resources } = await listsContainer.items
+          .query({
+            query: 'SELECT * FROM c WHERE c.id = @listID AND c.userID = @userID',
+            parameters: [
+              { name: '@listID', value: listID },
+              { name: '@userID', value: userID }
+            ],
+          })
+          .fetchAll();
+
+        if (!resources || resources.length === 0) {
+          return c.json({ error: 'Grocery list not found' }, 404);
+        }
+        listDoc = resources[0];
+      } catch (error: any) {
+        console.error('Error fetching list:', error);
+        if (error?.code === 404 || error?.statusCode === 404) {
+          return c.json({ error: 'Grocery list not found' }, 404);
+        }
+        throw error;
+      }
+
+      // Verify ownership
+      if (listDoc.userID !== userID) {
+        return c.json({ error: 'Unauthorized' }, 403);
+      }
+
+      // Get all items for this list
+      const { resources: itemDocs } = await itemsContainer.items
+        .query({
+          query: 'SELECT * FROM c WHERE c.listID = @listID ORDER BY c.createdAt ASC',
+          parameters: [{ name: '@listID', value: listID }],
+        })
+        .fetchAll();
+
+      const items = (itemDocs || []).map((itemDoc: any) => ({
+        id: itemDoc.id,
+        itemID: itemDoc.itemID || itemDoc.id,
+        listID: itemDoc.listID,
+        userID: itemDoc.userID || userID,
+        name: itemDoc.name,
+        quantity: itemDoc.quantity || 1,
+        unit: itemDoc.unit || '',
+        category: itemDoc.category,
+        notes: itemDoc.notes || '',
+        completed: itemDoc.completed || false,
+        createdAt: itemDoc.createdAt,
+        updatedAt: itemDoc.updatedAt,
+      }));
+
+      const fullList: GroceryList = {
+        id: listDoc.id,
+        listID: listDoc.listID || listDoc.id,
+        name: listDoc.name,
+        items: items,
+        userID: listDoc.userID,
+        sharedWith: listDoc.sharedWith || [],
+        createdAt: listDoc.createdAt,
+        updatedAt: listDoc.updatedAt,
+      };
+
+      return c.json({ list: fullList });
+    }
+
+    // PUT /api/grocery?userID=xxx&action=updateItem&listID=xxx&itemID=xxx
+    if (c.req.method === 'PUT' && action === 'updateItem' && listID) {
+      if (!isCosmosAvailable()) {
+        return c.json({ error: 'Grocery service not available' }, 503);
+      }
+
+      const itemId = c.req.query('itemID');
+      if (!itemId) {
+        return c.json({ error: 'itemID is required' }, 400);
+      }
+
+      const body = await c.req.json<Partial<Omit<GroceryItem, 'id' | 'userID' | 'listID' | 'createdAt'>>>();
+      
+      const itemsContainer = getContainer('groceryItems');
+      const listsContainer = getContainer('groceryLists');
+      
+      if (!itemsContainer || !listsContainer) {
+        return c.json({ error: 'Database not available' }, 503);
+      }
+
+      // Verify list ownership
+      try {
+        const { resources } = await listsContainer.items
+          .query({
+            query: 'SELECT * FROM c WHERE c.id = @listID AND c.userID = @userID',
+            parameters: [
+              { name: '@listID', value: listID },
+              { name: '@userID', value: userID }
+            ],
+          })
+          .fetchAll();
+
+        if (!resources || resources.length === 0) {
+          return c.json({ error: 'Grocery list not found' }, 404);
+        }
+        if (resources[0].userID !== userID) {
+          return c.json({ error: 'Unauthorized' }, 403);
+        }
+      } catch (error: any) {
+        console.error('Error fetching list:', error);
+        if (error?.code === 404 || error?.statusCode === 404) {
+          return c.json({ error: 'Grocery list not found' }, 404);
+        }
+        throw error;
+      }
+
+      // Get existing item
+      let existingItem: any;
+      try {
+        const { resources } = await itemsContainer.items
+          .query({
+            query: 'SELECT * FROM c WHERE c.id = @itemId AND c.listID = @listID',
+            parameters: [
+              { name: '@itemId', value: itemId },
+              { name: '@listID', value: listID }
+            ],
+          })
+          .fetchAll();
+
+        if (!resources || resources.length === 0) {
+          return c.json({ error: 'Grocery item not found' }, 404);
+        }
+        existingItem = resources[0];
+      } catch (error: any) {
+        console.error('Error fetching item:', error);
+        if (error?.code === 404 || error?.statusCode === 404) {
+          return c.json({ error: 'Grocery item not found' }, 404);
+        }
+        throw error;
+      }
+
+      // Verify ownership
+      if (existingItem.userID !== userID) {
+        return c.json({ error: 'Unauthorized' }, 403);
+      }
+
+      // Update item
+      const updatedItem: GroceryItem = {
+        ...existingItem,
+        ...body,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await itemsContainer.items.upsert(updatedItem);
+
+      return c.json({ item: updatedItem });
+    }
+
+    // Unknown action, continue to REST routes
+    return next();
+  } catch (error: any) {
+    console.error('Error handling query parameter action:', error);
+    return c.json({ error: 'Failed to process request' }, 500);
+  }
+});
+
 /**
  * Get all grocery lists for a user
  * GET /grocery/:userID/lists

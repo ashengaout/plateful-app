@@ -42,18 +42,26 @@ IMPORTANT RULES:
 6. Handle "X of Y" patterns properly (e.g., "2 of ginger" → quantity: 2, unit: "pieces", name: "ginger")
 7. Remove any leftover numbers, fractions, or dashes from ingredient names
 8. If quantity is missing, default to 1
-9. If unit is missing for count-based items, use "pieces" as default
+9. CRITICAL UNIT HANDLING:
+   - Only use "pieces" when there's an EXPLICIT count in the original ingredient (e.g., "2 shrimp" → quantity: 2, unit: "pieces")
+   - For descriptive ingredients WITHOUT explicit quantities or units (e.g., "Shrimp", "rice noodles", "coconut oil"), use an EMPTY STRING ("") for the unit, NOT "pieces"
+   - Examples:
+     * "Shrimp" → name: "shrimp", quantity: 1, unit: "" (empty string)
+     * "rice noodles" → name: "rice noodles", quantity: 1, unit: "" (empty string)
+     * "2 shrimp" → name: "shrimp", quantity: 2, unit: "pieces"
+     * "1 cup rice noodles" → name: "rice noodles", quantity: 1, unit: "cup"
+   - If the ingredient is just a name with no quantity or unit mentioned, leave unit as empty string ""
 
 CRITICAL: DETECT AND FIX INCOMPLETE INGREDIENT NAMES
 - If an ingredient name is just a preparation method (e.g., "boiling", "sliced", "minced", "chopped"), it's likely incomplete
 - Common incomplete patterns to detect:
-  * "boiling" → likely should be "boiling water" (check context or previous ingredients)
+  * "boiling" → likely part of a previous ingredient or should be in notes (DO NOT infer "water")
   * "sliced" → likely part of a previous ingredient or should be in notes
   * "minced" → likely part of a previous ingredient or should be in notes
   * "chopped" → likely part of a previous ingredient or should be in notes
 - If you detect an incomplete ingredient, try to infer the complete name from context
 - If you cannot determine the complete name, mark it clearly in notes or skip it
-- Ingredient names must be complete nouns (e.g., "water", "onion", "garlic"), not just adjectives or verbs
+- Ingredient names must be complete nouns (e.g., "onion", "garlic"), not just adjectives or verbs
 
 Ingredient strings to parse:
 ${ingredients.map((ing, i) => `${i + 1}. ${ing}`).join('\n')}
@@ -62,7 +70,7 @@ Return a JSON array with this EXACT structure for each ingredient:
 {
   "name": "clean ingredient name (must be a complete, meaningful noun)",
   "quantity": number,
-  "unit": "normalized unit string",
+  "unit": "normalized unit string or empty string \"\" if no unit",
   "category": null or undefined,
   "notes": "preparation notes or empty string"
 }
@@ -114,43 +122,52 @@ Return ONLY the JSON array, no other text.`;
       'peeled', 'seeded', 'stemmed', 'trimmed', 'cleaned', 'washed'
     ]);
 
-    const validated = parsed.map((item: any) => {
-      let name = item.name || 'Unknown';
-      const nameLower = name.toLowerCase().trim();
-      
-      // Check if name is just a preparation word (incomplete ingredient)
-      if (preparationWords.has(nameLower) && nameLower.length < 10) {
-        // Try to infer from context - if it's "boiling" with a unit like "cups", it's likely "boiling water"
-        if (item.unit && (item.unit.includes('cup') || item.unit.includes('ml') || item.unit.includes('l'))) {
-          name = 'water';
-          // Add the preparation method to notes
-          const notes = item.notes ? `${nameLower}, ${item.notes}` : nameLower;
+    // Filter out water and common items everyone has
+    const commonItems = new Set(['water', 'salt', 'pepper', 'black pepper']);
+
+    const validated = parsed
+      .map((item: any, index: number) => {
+        let name = item.name || 'Unknown';
+        const nameLower = name.toLowerCase().trim();
+        
+        // Filter out water and common items
+        if (commonItems.has(nameLower)) {
+          return null; // Will be filtered out
+        }
+        
+        // Check if name is just a preparation word (incomplete ingredient)
+        if (preparationWords.has(nameLower) && nameLower.length < 10) {
+          // Don't infer water - just mark as unknown or skip
           return {
-            name,
+            name: 'Unknown ingredient',
             quantity: typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1,
             unit: item.unit || '',
             category: item.category || undefined,
-            notes,
+            notes: item.notes ? `${nameLower}, ${item.notes}` : nameLower,
           };
         }
-        // Otherwise, mark as unknown and put preparation word in notes
+        
+        // Ensure unit is empty string if it's "pieces" but there's no explicit count
+        // If the original ingredient didn't have a number, don't use "pieces"
+        let unit = item.unit || '';
+        if (unit === 'pieces' && item.quantity === 1) {
+          // Check if the original ingredient string had a number
+          const originalIng = ingredients[index];
+          // If original didn't have a number, remove "pieces"
+          if (originalIng && !/\d/.test(originalIng)) {
+            unit = '';
+          }
+        }
+        
         return {
-          name: 'Unknown ingredient',
+          name,
           quantity: typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1,
-          unit: item.unit || '',
+          unit: unit,
           category: item.category || undefined,
-          notes: item.notes ? `${nameLower}, ${item.notes}` : nameLower,
+          notes: item.notes || '',
         };
-      }
-      
-      return {
-        name,
-        quantity: typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1,
-        unit: item.unit || '',
-        category: item.category || undefined,
-        notes: item.notes || '',
-      };
-    });
+      })
+      .filter((item: any) => item !== null); // Remove filtered items
 
     console.log(`✅ Successfully parsed ${validated.length} ingredients`);
 
