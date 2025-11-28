@@ -261,6 +261,14 @@ app.all('*', async (c, next) => {
           }
         }
 
+        if (profile.unavailableEquipment && profile.unavailableEquipment.length > 0) {
+          systemPrompt += `\n\n🚫🚫🚫 UNAVAILABLE EQUIPMENT - ABSOLUTE ENFORCEMENT REQUIRED 🚫🚫🚫\n`;
+          systemPrompt += `THE USER DOES NOT HAVE ACCESS TO: ${profile.unavailableEquipment.join(', ').toUpperCase()}\n`;
+          systemPrompt += `DO NOT suggest, recommend, or discuss recipes that require these items.\n`;
+          systemPrompt += `If the user asks about a dish that requires unavailable equipment, politely redirect them to an alternative method or dish.\n`;
+          systemPrompt += `This is a hard constraint - never suggest recipes requiring unavailable equipment.\n\n`;
+        }
+
         if (profile.likes && profile.likes.length > 0) {
           systemPrompt += `\n✅ User prefers: ${profile.likes.join(', ')}. You can emphasize these preferences when relevant.\n`;
         }
@@ -967,6 +975,15 @@ app.post('/ai-response', async (c) => {
         systemPrompt += `3. If user asks about a restricted/allergenic food, immediately decline and suggest a safe alternative\n`;
         systemPrompt += `4. NEVER suggest, mention, or even hint at restricted/allergenic foods as options\n`;
         systemPrompt += `5. This is a SAFETY and RESPECT issue - violations are UNACCEPTABLE and DANGEROUS\n\n`;
+      }
+
+      // Add unavailable equipment enforcement
+      if (profile.unavailableEquipment && profile.unavailableEquipment.length > 0) {
+        systemPrompt += `\n\n🚫🚫🚫 UNAVAILABLE EQUIPMENT - ABSOLUTE ENFORCEMENT REQUIRED 🚫🚫🚫\n`;
+        systemPrompt += `THE USER DOES NOT HAVE ACCESS TO: ${profile.unavailableEquipment.join(', ').toUpperCase()}\n`;
+        systemPrompt += `DO NOT suggest, recommend, or discuss recipes that require these items.\n`;
+        systemPrompt += `If the user asks about a dish that requires unavailable equipment, politely redirect them to an alternative method or dish.\n`;
+        systemPrompt += `This is a hard constraint - never suggest recipes requiring unavailable equipment.\n\n`;
       }
 
       // Optional: Add preferences (likes/dislikes) for personalization

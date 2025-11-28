@@ -187,9 +187,13 @@ export default function ChatScreen() {
       }
       
       const newConvID = data.conversation.conversationID;
+      
+      // Clear messages FIRST before updating conversationID to prevent race conditions
+      setMessages([]);
+      
+      // Update conversationID - this will trigger useEffect to load messages
       setConversationID(newConvID);
       setConversation(data.conversation);
-      setMessages([]);
       
       // Check if this is an editing conversation - if so, don't send greeting
       // (greeting is sent by load-recipe endpoint)
@@ -200,8 +204,7 @@ export default function ChatScreen() {
           "Hi! I'm here to help you discover delicious recipes. What kind of meal are you in the mood for today?",
           false // Don't add to local state
         );
-        // Reload messages to get the greeting from server (this will be called by the useEffect, but we call it explicitly to ensure it happens after the message is saved)
-        setTimeout(() => loadMessages(), 200);
+        // The useEffect will call loadMessages() when conversationID changes, no need for setTimeout
       }
     } catch (error) {
       console.error('❌ Failed to start conversation:', error);
