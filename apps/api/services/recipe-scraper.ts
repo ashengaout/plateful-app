@@ -1,6 +1,197 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
+// Optional Puppeteer import for headless browser fallback
+let puppeteer: any = null;
+try {
+  puppeteer = require('puppeteer');
+} catch (e) {
+  // Puppeteer not installed - that's okay, it's optional
+}
+
+/**
+ * Get a random user agent to rotate between requests
+ */
+function getRandomUserAgent(): string {
+  const userAgents = [
+    // Chrome on Windows
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    // Chrome on macOS
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    // Firefox on Windows
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
+    // Firefox on macOS
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0',
+    // Safari on macOS
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+    // Edge on Windows
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
+  ];
+  return userAgents[Math.floor(Math.random() * userAgents.length)];
+}
+
+/**
+ * Get a random referer to rotate between requests
+ */
+function getRandomReferer(): string {
+  const referers = [
+    'https://www.google.com/',
+    'https://www.google.com/search?q=recipe',
+    'https://duckduckgo.com/',
+    'https://www.bing.com/',
+  ];
+  return referers[Math.floor(Math.random() * referers.length)];
+}
+
+/**
+ * Generate random delay between 1-3 seconds to mimic human behavior
+ */
+function getRandomDelay(): number {
+  return 1000 + Math.floor(Math.random() * 2000); // 1000-3000ms
+}
+
+/**
+ * Scrape recipe content using headless browser (Puppeteer) as fallback
+ * Only used when stealth scraping fails with 403 errors
+ */
+async function scrapeWithHeadlessBrowser(url: string, includeImage: boolean): Promise<string | { content: string; imageUrl: string | null }> {
+  if (!puppeteer) {
+    throw new Error('Puppeteer not available - install with: npm install puppeteer');
+  }
+
+  const useHeadlessBrowser = process.env.USE_HEADLESS_BROWSER === 'true';
+  if (!useHeadlessBrowser) {
+    throw new Error('Headless browser fallback is disabled. Set USE_HEADLESS_BROWSER=true to enable.');
+  }
+
+  console.log(`🌐 Using headless browser fallback for ${url}`);
+  
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+    ],
+  });
+
+  try {
+    const page = await browser.newPage();
+    
+    // Set realistic viewport and user agent
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.setUserAgent(getRandomUserAgent());
+    
+    // Set additional headers
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Referer': getRandomReferer(),
+    });
+
+    // Navigate to the page
+    await page.goto(url, {
+      waitUntil: 'networkidle2',
+      timeout: 30000,
+    });
+
+    // Wait a bit for any dynamic content
+    await page.waitForTimeout(2000);
+
+    // Get page content
+    const html = await page.content();
+    const $ = cheerio.load(html);
+
+    // Extract image URL if requested
+    let imageUrl: string | null = null;
+    if (includeImage) {
+      imageUrl = extractImageUrl($, url);
+      console.log(`📸 Extracted image URL: ${imageUrl || 'none found'}`);
+    }
+
+    // Remove unwanted elements
+    $('script, style, nav, header, footer, .advertisement, .ads, .ad, .sidebar, .comments, .social-share, .related, .newsletter, noscript').remove();
+
+    let content = '';
+
+    // Strategy 1: Look for structured recipe markup (JSON-LD)
+    const scripts = $('script[type="application/ld+json"]');
+    for (let i = 0; i < scripts.length; i++) {
+      try {
+        const json = JSON.parse($(scripts[i]).html() || '{}');
+        if (json['@type'] === 'Recipe' || json['@type']?.includes?.('Recipe')) {
+          content = JSON.stringify(json, null, 2);
+          console.log(`Found structured recipe markup`);
+          break;
+        }
+      } catch (e) {
+        // Not JSON-LD, continue
+      }
+    }
+
+    // Strategy 2: Try to find recipe-specific content using common selectors
+    if (!content || content.length < 200) {
+      const recipeSelectors = [
+        '[itemtype*="Recipe"]',
+        '.recipe',
+        '.recipe-content',
+        '.recipe-body',
+        '.recipe-instructions',
+        '.recipe-ingredients',
+        '.recipe-details',
+        '.post-content',
+        '.entry-content',
+        '.article-content',
+        '.content-wrapper',
+        'article[class*="recipe"]',
+        'main[class*="recipe"]',
+        'article',
+        'main',
+      ];
+      
+      for (const selector of recipeSelectors) {
+        const element = $(selector);
+        if (element.length > 0) {
+          const text = element.text().trim();
+          if (text.length > 300) {
+            content = text;
+            console.log(`Found recipe content using selector: ${selector}`);
+            break;
+          }
+        }
+      }
+    }
+
+    // Strategy 3: Fallback to body content
+    if (!content || content.length < 200) {
+      content = $('body').text().trim();
+      console.log(`Using full body content as fallback`);
+    }
+
+    // Clean up the content
+    content = content
+      .replace(/\s+/g, ' ')
+      .replace(/\n\s*\n/g, '\n')
+      .trim();
+
+    if (content.length < 100) {
+      throw new Error('Scraped content is too short, likely failed to extract recipe');
+    }
+
+    console.log(`✅ Scraped ${content.length} characters using headless browser`);
+
+    if (includeImage) {
+      return { content, imageUrl };
+    }
+
+    return content;
+  } finally {
+    await browser.close();
+  }
+}
+
 /**
  * Extract image URL from HTML using multiple strategies
  */
@@ -97,21 +288,34 @@ export async function scrapeRecipeContent(url: string, includeImage?: boolean): 
     try {
       console.log(`Scraping content from: ${url} (attempt ${attempt}/${maxRetries})`);
       
+      // Add random delay before request (except first attempt) to mimic human behavior
+      if (attempt > 1) {
+        const delay = getRandomDelay();
+        console.log(`⏳ Waiting ${delay}ms before retry to mimic human behavior...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      // Rotate user agent and referer for each request
+      const userAgent = getRandomUserAgent();
+      const referer = getRandomReferer();
+      
       const response = await axios.get(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'User-Agent': userAgent,
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
           'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Charset': 'UTF-8',
           'Accept-Encoding': 'gzip, deflate, br',
           'DNT': '1',
           'Connection': 'keep-alive',
           'Upgrade-Insecure-Requests': '1',
           'Sec-Fetch-Dest': 'document',
           'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-Site': 'cross-site',
           'Sec-Fetch-User': '?1',
           'Cache-Control': 'max-age=0',
-          'Referer': 'https://www.google.com/' // Add referer to appear more legitimate
+          'Referer': referer,
+          'Viewport-Width': '1920',
         },
         timeout: 15000, // 15 second timeout for scraping (fail faster to try more URLs)
         maxRedirects: 5,
@@ -120,6 +324,21 @@ export async function scrapeRecipeContent(url: string, includeImage?: boolean): 
       
       // Handle non-200 status codes - don't retry on client errors (4xx)
       if (response.status === 403) {
+        // Try headless browser fallback if enabled
+        const useHeadlessBrowser = process.env.USE_HEADLESS_BROWSER === 'true';
+        if (useHeadlessBrowser && attempt === 1) {
+          console.log(`⚠️ Got 403 error, attempting headless browser fallback...`);
+          try {
+            const fallbackResult = await scrapeWithHeadlessBrowser(url, includeImage || false);
+            if (includeImage) {
+              return fallbackResult as ScrapeResult;
+            }
+            return fallbackResult as string;
+          } catch (fallbackError) {
+            console.error(`❌ Headless browser fallback also failed:`, fallbackError instanceof Error ? fallbackError.message : String(fallbackError));
+            // Continue to throw the original 403 error
+          }
+        }
         // Don't retry 403 - website is blocking us
         throw new Error(`Access forbidden (403) - website blocking scraper`);
       }
@@ -267,9 +486,9 @@ export async function scrapeRecipeContent(url: string, includeImage?: boolean): 
       console.error(`❌ Error scraping ${url} (attempt ${attempt}/${maxRetries}):`, lastError.message);
       
       if (attempt < maxRetries) {
-        // Wait before retrying (shorter delay to fail faster)
-        const delay = 1000; // 1 second delay between retries
-        console.log(`Waiting ${delay}ms before retry...`);
+        // Wait before retrying with random delay to mimic human behavior
+        const delay = getRandomDelay();
+        console.log(`⏳ Waiting ${delay}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }

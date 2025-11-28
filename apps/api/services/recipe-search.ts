@@ -101,7 +101,13 @@ export async function searchRecipe(
           "food.com",
           "epicurious.com",
           "bonappetit.com",
-          "thehealthyhunterblog.com" // Consistently returns 500 errors
+          "thehealthyhunterblog.com", // Consistently returns 500 errors
+          // Recently blocked domains (403 errors)
+          "glutenfreecuppatea.co",
+          "schoolnightvegan.com",
+          "noracooks.com",
+          "simplyleb.com",
+          "theyummybowl.com",
         ],
         // Prefer reliable recipe sites
       }
@@ -115,7 +121,7 @@ Find a specific recipe page URL (not a homepage or category page) from any relia
 
 IMPORTANT: Return a URL to a specific recipe page that contains ingredients and instructions, NOT a homepage or category listing page.
 
-Return a JSON array with 3-5 different recipe options, each from a DIFFERENT website/domain.
+Return a JSON array with 8-10 different recipe options, each from a DIFFERENT website/domain.
 Each recipe should be a JSON object with this structure:
 {
   "title": "Recipe title",
