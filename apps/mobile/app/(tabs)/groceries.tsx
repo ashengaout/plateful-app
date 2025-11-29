@@ -18,6 +18,7 @@ import type { GroceryList, GroceryItem, PantryItem, PantryCategory, CommonIngred
 import { findPantryMatch, COMMON_INGREDIENTS, getIngredientsByCategory, CATEGORY_NAMES, CATEGORY_ORDER, detectPantryCategory } from '@plateful/shared';
 import { groupGroceryItems, type GroupedGroceryItems } from '@plateful/shared/src/utils/grocery-grouping';
 import { ScrollView, TouchableWithoutFeedback } from 'react-native';
+import { useRouter } from 'expo-router';
 import Header from '../../src/components/Header';
 import { auth } from '../../src/config/firebase';
 import { API_BASE } from '../../src/config/api';
@@ -128,10 +129,12 @@ function PantryViewContent({
   loadPantryItems: () => Promise<void>;
   onSwitchToLists: () => void;
 }) {
+  const router = useRouter();
   const [customInput, setCustomInput] = useState('');
   const [showQuantityModal, setShowQuantityModal] = useState(false);
   const [selectedIngredient, setSelectedIngredient] = useState<CommonIngredient | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isAllIngredientsExpanded, setIsAllIngredientsExpanded] = useState(false);
 
   const groupedIngredients = getIngredientsByCategory();
   const pantryItemNames = new Set(pantryItems.map(item => item.name.toLowerCase()));
@@ -313,6 +316,57 @@ function PantryViewContent({
             </TouchableOpacity>
           )}
         </View>
+
+        {/* All Ingredients Expandable Section */}
+        {pantryItems.length > 0 && (
+          <View style={pantryStyles.expandableCard}>
+            <TouchableOpacity 
+              onPress={() => setIsAllIngredientsExpanded(!isAllIngredientsExpanded)}
+              style={pantryStyles.expandableHeader}
+            >
+              <View style={pantryStyles.expandableHeaderContent}>
+                <Text style={pantryStyles.expandableTitle}>All Ingredients</Text>
+                <View style={pantryStyles.countBadge}>
+                  <Text style={pantryStyles.countBadgeText}>{pantryItems.length}</Text>
+                </View>
+              </View>
+              <Ionicons 
+                name={isAllIngredientsExpanded ? "chevron-up" : "chevron-down"} 
+                size={20} 
+                color={colors.textSecondary} 
+              />
+            </TouchableOpacity>
+            
+            {isAllIngredientsExpanded && (
+              <View style={pantryStyles.expandableContent}>
+                <View style={pantryStyles.compactTagsContainer}>
+                  {pantryItems.map((item) => (
+                    <View key={item.id} style={pantryStyles.compactTag}>
+                      <Text style={pantryStyles.compactTagText}>
+                        {item.name}
+                        {item.quantity && item.unit && ` (${item.quantity} ${item.unit})`}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                <TouchableOpacity
+                  style={pantryStyles.findRecipesButton}
+                  onPress={() => {
+                    router.push({
+                      pathname: '/(tabs)/chat',
+                      params: { pantryInspired: 'true' },
+                    });
+                  }}
+                >
+                  <Ionicons name="restaurant" size={18} color={colors.surface} />
+                  <Text style={pantryStyles.findRecipesButtonText}>
+                    Find Recipes Inspired by My Pantry
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Custom Add Section */}
         <View style={pantryStyles.section}>
@@ -1781,5 +1835,88 @@ const pantryStyles = StyleSheet.create({
     borderColor: colors.border || '#E0E0E0',
     fontSize: 16,
     color: colors.textPrimary,
+  },
+  expandableCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 8,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border || '#E0E0E0',
+    overflow: 'hidden',
+  },
+  expandableHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  expandableHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  expandableTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  countBadge: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.surface,
+  },
+  expandableContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider || '#E0E0E0',
+  },
+  compactTagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  compactTag: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border || '#E0E0E0',
+  },
+  compactTagText: {
+    fontSize: 12,
+    color: colors.textPrimary,
+    fontWeight: '500',
+  },
+  findRecipesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    marginTop: 8,
+  },
+  findRecipesButtonText: {
+    fontSize: 15,
+    color: colors.surface,
+    fontWeight: '600',
   },
 });

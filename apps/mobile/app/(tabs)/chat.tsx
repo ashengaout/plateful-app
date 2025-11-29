@@ -23,7 +23,7 @@ import Header from '../../src/components/Header';
 import { API_BASE } from '../../src/config/api';
 
 export default function ChatScreen() {
-  const params = useLocalSearchParams<{ editingConversationID?: string }>();
+  const params = useLocalSearchParams<{ editingConversationID?: string; pantryInspired?: string }>();
   const [conversationID, setConversationID] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -61,7 +61,7 @@ export default function ChatScreen() {
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [params.editingConversationID, conversationID]);
+  }, [params.editingConversationID, params.pantryInspired, conversationID]);
 
   // Load messages when conversationID changes
   useEffect(() => {
@@ -71,11 +71,12 @@ export default function ChatScreen() {
     }
   }, [conversationID]);
 
-  const loadMessages = async () => {
-    if (!conversationID) return;
+  const loadMessages = async (convID?: string) => {
+    const idToUse = convID || conversationID;
+    if (!idToUse) return;
     
     try {
-      const response = await fetch(`${API_BASE}/api/chat?action=messages&conversationID=${conversationID}`);
+      const response = await fetch(`${API_BASE}/api/chat?action=messages&conversationID=${idToUse}`);
       if (response.ok) {
         const data = await response.json();
         const loadedMessages = data.messages || [];
@@ -198,13 +199,29 @@ export default function ChatScreen() {
       // Check if this is an editing conversation - if so, don't send greeting
       // (greeting is sent by load-recipe endpoint)
       if (data.conversation.status !== 'editing_recipe') {
-        // Send initial greeting (don't add to local state - let loadMessages handle it)
-        await sendAssistantMessage(
-          newConvID,
-          "Hi! I'm here to help you discover delicious recipes. What kind of meal are you in the mood for today?",
-          false // Don't add to local state
-        );
-        // The useEffect will call loadMessages() when conversationID changes, no need for setTimeout
+        const isPantryInspired = params.pantryInspired === 'true';
+        if (isPantryInspired) {
+          // Auto-send pantry-inspired message
+          const pantryMessage = "Find recipes inspired by my pantry ingredients";
+          await sendUserMessage(newConvID, pantryMessage, false);
+          // Get AI response after a short delay to ensure message is saved
+          setTimeout(async () => {
+            await loadMessages(newConvID); // Load the user message first, pass conversationID directly
+            // Call AI response with the conversationID directly
+            const aiResponse = await getAIResponseForConversation(newConvID, true);
+            await sendAssistantMessage(newConvID, aiResponse, false);
+            await loadMessages(newConvID); // Load both messages, pass conversationID directly
+            setTimeout(() => extractCurrentIntent(), 500);
+          }, 500);
+        } else {
+          // Send initial greeting (don't add to local state - let loadMessages handle it)
+          await sendAssistantMessage(
+            newConvID,
+            "Hi! I'm here to help you discover delicious recipes. What kind of meal are you in the mood for today?",
+            false // Don't add to local state
+          );
+          // The useEffect will call loadMessages() when conversationID changes, no need for setTimeout
+        }
       }
     } catch (error) {
       console.error('❌ Failed to start conversation:', error);
@@ -218,6 +235,41 @@ export default function ChatScreen() {
       
       Alert.alert('Error', `Failed to start chat: ${userFriendlyMessage}`);
       throw error; // Re-throw so caller knows it failed
+    }
+  };
+
+  const sendUserMessage = async (convID: string, content: string, addToLocalState: boolean = true) => {
+    try {
+      console.log(`📤 Sending user message to ${convID}`);
+      
+      const response = await fetch(`${API_BASE}/api/chat?action=message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationID: convID,
+          role: 'user',
+          content,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error(`❌ User message failed (${response.status}):`, errorData);
+        throw new Error(`Failed to send message: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ User message sent:', data);
+      console.log('📨 Message object:', data.message);
+      
+      // Only add to local state if requested
+      if (addToLocalState && data.message) {
+        setMessages(prev => [...prev, data.message]);
+      } else if (!data.message) {
+        console.error('❌ No message in user response:', data);
+      }
+    } catch (error) {
+      console.error('❌ Failed to send user message:', error);
     }
   };
 
@@ -322,8 +374,18 @@ export default function ChatScreen() {
         console.error('❌ No message in response:', userData);
       }
 
+      // Check if message mentions pantry
+      const messageLower = userMessage.toLowerCase();
+      const mentionsPantry = messageLower.includes('pantry') || 
+                             messageLower.includes('what i have') ||
+                             messageLower.includes('ingredients i have') ||
+                             messageLower.includes('using my pantry') ||
+                             messageLower.includes('based on my pantry') ||
+                             messageLower.includes('from my pantry') ||
+                             messageLower.includes('with what i have');
+
       // Get AI response
-      const aiResponse = await getAIResponse([...messages, userData.message]);
+      const aiResponse = await getAIResponse([...messages, userData.message], mentionsPantry);
       await sendAssistantMessage(conversationID, aiResponse);
       
       // Extract current intent after conversation update
@@ -336,16 +398,19 @@ export default function ChatScreen() {
     }
   };
 
-  const getAIResponse = async (messageHistory: ChatMessage[]): Promise<string> => {
+  const getAIResponseForConversation = async (convID: string, includePantry: boolean = false): Promise<string> => {
     try {
+      const shouldIncludePantry = includePantry || params.pantryInspired === 'true';
       console.log('🤖 Calling real AI for response...');
+      console.log(`📦 includePantry flag: ${shouldIncludePantry} (includePantry param: ${includePantry}, pantryInspired: ${params.pantryInspired})`);
       
       const response = await fetch(`${API_BASE}/api/chat?action=ai-response`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          conversationID: conversationID,
+          conversationID: convID,
           userID: auth.currentUser?.uid,
+          includePantry: shouldIncludePantry,
         }),
       });
 
@@ -365,6 +430,14 @@ export default function ChatScreen() {
       // Fallback to a simple response if AI fails
       return "I'm here to help you find delicious recipes! What are you in the mood for?";
     }
+  };
+
+  const getAIResponse = async (messageHistory: ChatMessage[], includePantry: boolean = false): Promise<string> => {
+    if (!conversationID) {
+      console.error('❌ No conversationID available');
+      return "I'm here to help you find delicious recipes! What are you in the mood for?";
+    }
+    return getAIResponseForConversation(conversationID, includePantry);
   };
 
   const extractCurrentIntent = async () => {
@@ -422,6 +495,7 @@ export default function ChatScreen() {
           body: JSON.stringify({
             conversationID,
             userID: auth.currentUser.uid,
+            includePantry: params.pantryInspired === 'true',
           }),
           signal: controller.signal,
         });

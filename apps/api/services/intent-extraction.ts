@@ -65,11 +65,11 @@ CERTAINTY LEVELS:
 - medium: specific_dish status  
 - high: fully_refined status
 
-IMPORTANT: Be CONSERVATIVE with status assignment:
-- Only set specific_dish when user explicitly names a dish (like "Kung Pao Chicken")
-- Only set fully_refined when user names a dish AND specifies preferences (like "spicy Kung Pao Chicken")
-- If user is still exploring options or answering questions, keep it as broad_category
-- Don't jump to higher levels just because AI is asking clarifying questions
+IMPORTANT: Be AGGRESSIVE with status assignment for specific dish names:
+- If user mentions a specific dish name in their FIRST message (like "drunken noodles", "pad thai", "Kung Pao Chicken"), immediately classify as specific_dish
+- If user mentions a specific dish name AND preferences/details in their FIRST message (like "spicy drunken noodles", "vegetarian pad thai"), classify as fully_refined
+- Don't wait for multiple messages - if the first user message contains a dish name, show the recipe button immediately
+- Only be conservative if the user is clearly still exploring (e.g., "I'm thinking about Thai food" without naming a dish)
 
 KITCHEN-RELATED TOPICS (ALLOWED):
 - Cooking methods: braise, sauté, grill, bake, etc.
@@ -96,17 +96,25 @@ EXPLANATION EXAMPLES:
 STATUS EXAMPLES:
 - "Thai food" → broad_category (even if AI asks questions)
 - "Thai chicken stir-fry" → dish_type (general dish type, not named recipe)
-- "I want Pad Thai" → specific_dish (named recipe)
-- "Spicy Pad Thai with extra peanuts" → fully_refined (named recipe + preferences)
+- "I want Pad Thai" → specific_dish (named recipe) - IMMEDIATELY, don't wait
+- "drunken noodles" → specific_dish (named recipe) - IMMEDIATELY, don't wait
+- "I want drunken noodles" → specific_dish (named recipe) - IMMEDIATELY, don't wait
+- "Spicy Pad Thai with extra peanuts" → fully_refined (named recipe + preferences) - IMMEDIATELY
+- "spicy drunken noodles" → fully_refined (named recipe + preferences) - IMMEDIATELY
 - "What is braising?" → kitchen_utility
 - "Tell me about cement" → off_topic
 
+CRITICAL RULE: If the user's FIRST message contains a recognizable dish name (pad thai, drunken noodles, kung pao chicken, lasagna, cheeseburger, etc.), classify as specific_dish or fully_refined IMMEDIATELY. Don't wait for follow-up messages or AI questions.
+
 IMPORTANT RULES:
+- If user mentions a dish name in their FIRST message, they HAVE decided on that dish - classify immediately as specific_dish or fully_refined
+- Don't wait for multiple messages - be aggressive about detecting dish names
+- Common dish names to recognize immediately: pad thai, drunken noodles, kung pao chicken, lasagna, cheeseburger, pizza, pasta, curry, stir-fry, ramen, pho, tacos, burritos, sushi, etc.
 - If user mentions a dish and answers questions about it, they HAVE decided on that dish
 - Broad categories like "Chinese food" are valid and should allow recipe search
 - Only block conversations that are completely unrelated to cooking/food
 - Kitchen utility questions should allow conversation but not show recipe button
-- The searchQuery should be concise and optimized for web search (e.g., "Chinese recipes", "Italian pasta recipes", "braising recipes")
+- The searchQuery should be concise and optimized for web search (e.g., "Chinese recipes", "Italian pasta recipes", "braising recipes", "drunken noodles recipe")
 - Avoid verbose search queries with pending details - keep them simple and actionable
 - The explanation should be SHORT but include core details - like "Chinese food with onions, noodles" or "Pan-seared fish, spicy" - give a hint of what's being considered
 - DO NOT write long explanations about AI behavior or user analysis - just the food details

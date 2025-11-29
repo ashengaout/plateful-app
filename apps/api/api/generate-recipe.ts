@@ -29,8 +29,8 @@ app.post('/', async (c) => {
   }
 
   try {
-    const body = await c.req.json<RecipeGenerateRequest>();
-    const { conversationID, userID } = body;
+    const body = await c.req.json<RecipeGenerateRequest & { includePantry?: boolean }>();
+    const { conversationID, userID, includePantry } = body;
 
     if (!conversationID || !userID) {
       return c.json({ error: 'conversationID and userID are required' }, 400);
@@ -75,10 +75,49 @@ app.post('/', async (c) => {
 
     console.log(`📝 Fetched ${messages.length} messages`);
 
+    // Step 1.5: Fetch pantry items if includePantry is true
+    let pantryItems: any[] = [];
+    if (includePantry) {
+      const pantryContainer = getContainer('pantries');
+      if (pantryContainer) {
+        try {
+          const { resources } = await pantryContainer.items
+            .query({
+              query: 'SELECT * FROM c WHERE c.userID = @userID',
+              parameters: [{ name: '@userID', value: userID }],
+            })
+            .fetchAll();
+          pantryItems = resources || [];
+          if (pantryItems.length > 0) {
+            console.log(`📦 Found ${pantryItems.length} pantry items to inspire recipe search`);
+          }
+        } catch (error) {
+          console.log('Could not load pantry items:', error);
+        }
+      }
+    }
+
     // Step 2: Extract intent
     console.log(`🧠 Extracting intent from conversation...`);
     const intent = await extractIntent(messages, profile);
     console.log(`✅ Intent extracted: ${intent.dish} (status: ${intent.status})`);
+    
+    // Enhance search query with pantry ingredients ONLY if:
+    // 1. Pantry items are available
+    // 2. Search query exists and is not "Not applicable"
+    // 3. Intent status is broad_category or dish_type (not already a specific dish)
+    // This prevents making search queries too specific when a dish is already decided
+    if (pantryItems.length > 0 && 
+        intent.searchQuery && 
+        !intent.searchQuery.includes('Not applicable') &&
+        (intent.status === 'broad_category' || intent.status === 'dish_type')) {
+      const ingredientNames = pantryItems.map(item => item.name).join(' ');
+      // Add pantry ingredients to search query to prioritize recipes using them
+      intent.searchQuery = `${intent.searchQuery} with ${ingredientNames}`;
+      console.log(`📦 Enhanced search query with pantry ingredients: ${intent.searchQuery}`);
+    } else if (pantryItems.length > 0 && (intent.status === 'specific_dish' || intent.status === 'fully_refined')) {
+      console.log(`📦 Skipping pantry enhancement - intent is already a specific dish: ${intent.dish}`);
+    }
 
     // Check if conversation is off-topic
     if (intent.status === 'off_topic') {

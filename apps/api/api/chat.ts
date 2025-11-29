@@ -161,7 +161,9 @@ app.all('*', async (c, next) => {
       }
 
       const body = await c.req.json();
-      const { conversationID, userID } = body;
+      const { conversationID, userID, includePantry } = body;
+
+      console.log(`📥 AI response request (legacy) - conversationID: ${conversationID}, userID: ${userID}, includePantry: ${includePantry}`);
 
       if (!conversationID) {
         return c.json({ error: 'conversationID is required' }, 400);
@@ -234,7 +236,40 @@ app.all('*', async (c, next) => {
         }
       }
 
-      let systemPrompt = "You are a helpful recipe assistant for the Plateful app. Help users discover delicious recipes through friendly conversation. Ask follow-up questions to understand their preferences, suggest dishes, and guide them toward finding the perfect recipe. Keep responses conversational, helpful, and food-focused." + recipeContext;
+      // Fetch pantry items if includePantry is true
+      let pantryContext = '';
+      if (includePantry && userID) {
+        console.log(`📦 Fetching pantry items for user ${userID} (includePantry: ${includePantry})`);
+        const pantryContainer = getContainer('pantries');
+        if (pantryContainer) {
+          try {
+            const { resources: pantryItems } = await pantryContainer.items
+              .query({
+                query: 'SELECT * FROM c WHERE c.userID = @userID',
+                parameters: [{ name: '@userID', value: userID }],
+              })
+              .fetchAll();
+            
+            console.log(`📦 Found ${pantryItems?.length || 0} pantry items`);
+            
+            if (pantryItems && pantryItems.length > 0) {
+              const ingredientNames = pantryItems.map((item: any) => item.name).join(', ');
+              console.log(`📦 Pantry ingredients: ${ingredientNames}`);
+              pantryContext = `\n\n📦 USER'S PANTRY INGREDIENTS (YOU ALREADY KNOW THESE - DO NOT ASK):\nThe user has these ingredients available: ${ingredientNames}\n\n🚨🚨🚨 CRITICAL INSTRUCTIONS - READ CAREFULLY 🚨🚨🚨\n\nThe user just asked for recipes "inspired by my pantry" or "based on my pantry". You MUST:\n\n1. DO NOT ask "what ingredients do you have?" - you already know them: ${ingredientNames}\n2. DO NOT ask them to list their ingredients - you already have the complete list above\n3. DO NOT generate full recipes with ingredients and instructions - ONLY suggest dish names\n4. IMMEDIATELY suggest 2-3 REAL DISH NAMES based on ingredient combinations:\n   - Look for recognizable ingredient combinations that suggest real dishes\n   - Example: gochujang + kimchi → suggest "kimchi jjigae" (Korean kimchi stew)\n   - Example: tamarind + fish sauce + shrimp → suggest "tom yum soup" or "pad thai"\n   - Example: coconut oil + shrimp + rice noodles → suggest "pad thai" or "laksa"\n5. Suggest REAL, SEARCHABLE dish names - not made-up combinations\n6. Keep suggestions brief - just dish names with a short description\n7. The user will click "Find Recipe" to generate the actual recipe - you don't generate it here\n8. Start suggesting dishes RIGHT NOW - don't ask for more information\n\nEXAMPLE GOOD RESPONSE:\n"Based on what you have (${ingredientNames.split(', ').slice(0, 5).join(', ')}, etc.), here are some great options:\n\n1. **Kimchi Jjigae** - Korean kimchi stew that uses your gochujang and kimchi. You might want to add pork or tofu.\n\n2. **Pad Thai** - Thai stir-fried noodles that work great with your shrimp, rice noodles, and tamarind. You might need some additional vegetables.\n\n3. **Tom Yum Soup** - Spicy Thai soup perfect for your shrimp and tamarind. You might want to add some mushrooms and lime."\n\nDO NOT:\n- Generate full recipes with ingredients lists and instructions\n- Ask "What ingredients do you have?"\n- Create made-up dish names - use real, recognizable dish names\n- Write long recipe descriptions - keep it brief`;
+            } else {
+              console.log('📦 No pantry items found for user');
+            }
+          } catch (error) {
+            console.error('❌ Could not load pantry items:', error);
+          }
+        } else {
+          console.log('📦 Pantry container not available');
+        }
+      } else {
+        console.log(`📦 Not fetching pantry (includePantry: ${includePantry}, userID: ${userID})`);
+      }
+
+      let systemPrompt = "You are a helpful recipe assistant for the Plateful app. Help users discover delicious recipes through friendly conversation. Ask follow-up questions to understand their preferences, suggest dishes, and guide them toward finding the perfect recipe. Keep responses conversational, helpful, and food-focused." + recipeContext + pantryContext;
       
       if (profile) {
         const restrictions: string[] = [];
@@ -760,7 +795,9 @@ app.post('/ai-response', async (c) => {
 
   try {
     const body = await c.req.json();
-    const { conversationID, userID } = body;
+    const { conversationID, userID, includePantry } = body;
+
+    console.log(`📥 AI response request - conversationID: ${conversationID}, userID: ${userID}, includePantry: ${includePantry}`);
 
     if (!conversationID) {
       return c.json({ error: 'conversationID is required' }, 400);
@@ -841,8 +878,41 @@ app.post('/ai-response', async (c) => {
       }
     }
 
+    // Fetch pantry items if includePantry is true
+    let pantryContext = '';
+    if (includePantry && userID) {
+      console.log(`📦 Fetching pantry items for user ${userID} (includePantry: ${includePantry})`);
+      const pantryContainer = getContainer('pantries');
+      if (pantryContainer) {
+        try {
+          const { resources: pantryItems } = await pantryContainer.items
+            .query({
+              query: 'SELECT * FROM c WHERE c.userID = @userID',
+              parameters: [{ name: '@userID', value: userID }],
+            })
+            .fetchAll();
+          
+          console.log(`📦 Found ${pantryItems?.length || 0} pantry items`);
+          
+          if (pantryItems && pantryItems.length > 0) {
+            const ingredientNames = pantryItems.map((item: any) => item.name).join(', ');
+            console.log(`📦 Pantry ingredients: ${ingredientNames}`);
+            pantryContext = `\n\n📦 USER'S PANTRY INGREDIENTS (YOU ALREADY KNOW THESE - DO NOT ASK):\nThe user has these ingredients available: ${ingredientNames}\n\n🚨🚨🚨 CRITICAL INSTRUCTIONS - READ CAREFULLY 🚨🚨🚨\n\nThe user just asked for recipes "inspired by my pantry" or "based on my pantry". You MUST:\n\n1. DO NOT ask "what ingredients do you have?" - you already know them: ${ingredientNames}\n2. DO NOT ask them to list their ingredients - you already have the complete list above\n3. IMMEDIATELY suggest 2-3 specific recipes using the ingredients listed above\n4. You can say: "Based on what you have (${ingredientNames}), [recipe name] with [additional ingredient] might be good. Let me know if you'd like to add any other ingredients"\n5. Start suggesting recipes RIGHT NOW - don't ask for more information\n6. It's okay to mention other ingredients they might need, but prioritize recipes using their existing items\n7. The user expects you to know their pantry - NEVER ask them to tell you what they have\n\nEXAMPLE GOOD RESPONSE:\n"Based on what you have (${ingredientNames.split(', ').slice(0, 5).join(', ')}, etc.), here are some great options:\n\n1. [Recipe name] - uses [your ingredients]. You might want to add [xyz] or [abc]. Let me know if you'd like to add any other ingredients.\n\n2. [Another recipe] - uses [your ingredients]..."\n\nDO NOT start with "What ingredients do you have?" or "Could you tell me what's in your pantry?" - you already know!`;
+          } else {
+            console.log('📦 No pantry items found for user');
+          }
+        } catch (error) {
+          console.error('❌ Could not load pantry items:', error);
+        }
+      } else {
+        console.log('📦 Pantry container not available');
+      }
+    } else {
+      console.log(`📦 Not fetching pantry (includePantry: ${includePantry}, userID: ${userID})`);
+    }
+
     // Build system prompt with strict dietary restrictions
-    let systemPrompt = "You are a helpful recipe assistant for the Plateful app. Help users discover delicious recipes through friendly conversation. Ask follow-up questions to understand their preferences, suggest dishes, and guide them toward finding the perfect recipe. Keep responses conversational, helpful, and food-focused." + recipeContext;
+    let systemPrompt = "You are a helpful recipe assistant for the Plateful app. Help users discover delicious recipes through friendly conversation. Ask follow-up questions to understand their preferences, suggest dishes, and guide them toward finding the perfect recipe. Keep responses conversational, helpful, and food-focused." + recipeContext + pantryContext;
     
     if (profile) {
       // CRITICAL: Build strict restriction enforcement

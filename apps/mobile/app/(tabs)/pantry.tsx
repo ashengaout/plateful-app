@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -115,6 +116,7 @@ function QuantityModal({ visible, ingredient, onClose, onConfirm }: QuantityModa
 }
 
 export default function PantryScreen() {
+  const router = useRouter();
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [customInput, setCustomInput] = useState('');
@@ -500,35 +502,69 @@ export default function PantryScreen() {
                 </View>
               </View>
             ) : (
-              masterListCategories
-                .filter(cat => filteredPantryByCategory[cat] && filteredPantryByCategory[cat].length > 0)
-                .map((category) => (
-                  <View key={category} style={styles.section}>
-                    <Text style={styles.sectionTitle}>
-                      {CATEGORY_NAMES[category] || category}
-                    </Text>
-                    <View style={styles.pantryCategorySection}>
-                      {filteredPantryByCategory[category].map((item) => (
-                        <View key={item.id} style={styles.pantryItem}>
-                          <View style={styles.pantryItemContent}>
-                            <Text style={styles.pantryItemName}>{item.name}</Text>
-                            {item.quantity && item.unit && (
-                              <Text style={styles.pantryItemQuantity}>
-                                {item.quantity} {item.unit}
-                              </Text>
-                            )}
-                          </View>
-                          <TouchableOpacity
-                            style={styles.deleteButton}
-                            onPress={() => removePantryItem(item.id)}
-                          >
-                            <Ionicons name="trash-outline" size={20} color={semanticColors.error} />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                    </View>
+              <>
+                {/* All Ingredients Section */}
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>All Ingredients</Text>
+                  <View style={styles.allIngredientsContainer}>
+                    {filteredPantryItems.map((item) => (
+                      <View key={item.id} style={styles.ingredientChip}>
+                        <Text style={styles.ingredientChipText}>
+                          {item.name}
+                          {item.quantity && item.unit && ` (${item.quantity} ${item.unit})`}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
-                ))
+                  {filteredPantryItems.length > 0 && (
+                    <TouchableOpacity
+                      style={styles.findRecipesButton}
+                      onPress={() => {
+                        router.push({
+                          pathname: '/(tabs)/chat',
+                          params: { pantryInspired: 'true' },
+                        });
+                      }}
+                    >
+                      <Ionicons name="restaurant" size={20} color={colors.surface} />
+                      <Text style={styles.findRecipesButtonText}>
+                        Find Recipes Inspired by My Pantry
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Category Sections */}
+                {masterListCategories
+                  .filter(cat => filteredPantryByCategory[cat] && filteredPantryByCategory[cat].length > 0)
+                  .map((category) => (
+                    <View key={category} style={styles.section}>
+                      <Text style={styles.sectionTitle}>
+                        {CATEGORY_NAMES[category] || category}
+                      </Text>
+                      <View style={styles.pantryCategorySection}>
+                        {filteredPantryByCategory[category].map((item) => (
+                          <View key={item.id} style={styles.pantryItem}>
+                            <View style={styles.pantryItemContent}>
+                              <Text style={styles.pantryItemName}>{item.name}</Text>
+                              {item.quantity && item.unit && (
+                                <Text style={styles.pantryItemQuantity}>
+                                  {item.quantity} {item.unit}
+                                </Text>
+                              )}
+                            </View>
+                            <TouchableOpacity
+                              style={styles.deleteButton}
+                              onPress={() => removePantryItem(item.id)}
+                            >
+                              <Ionicons name="trash-outline" size={20} color={semanticColors.error} />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
+              </>
             )}
           </>
         )}
@@ -832,6 +868,41 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   modalButtonTextConfirm: {
+    fontSize: 16,
+    color: colors.surface,
+    fontWeight: '600',
+  },
+  allIngredientsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  ingredientChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border || '#E0E0E0',
+  },
+  ingredientChipText: {
+    fontSize: 14,
+    color: colors.textPrimary,
+    fontWeight: '500',
+  },
+  findRecipesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  findRecipesButtonText: {
     fontSize: 16,
     color: colors.surface,
     fontWeight: '600',
