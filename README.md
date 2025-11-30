@@ -1,6 +1,6 @@
 # Plateful
 
-A modern full-stack grocery management app built with Expo React Native, Firebase, and Vercel.
+A modern full-stack grocery management app built with Expo React Native, Firebase, and Azure App Service.
 
 🚨 **IMPORTANT: Package Manager Requirement** 🚨
 - **MUST use npm 9.0+** - This project uses npm workspaces
@@ -43,7 +43,7 @@ A modern full-stack grocery management app built with Expo React Native, Firebas
 | **Language** | TypeScript 5.3 |
 | **Routing** | Expo Router (file-based) |
 | **Backend** | Firebase (Auth + Firestore + Storage) |
-| **API** | Vercel Edge Functions + Hono |
+| **API** | Azure App Service + Hono (Node.js) |
 | **Package Manager** | npm 9.0+ (workspaces) |
 | **Build Tool** | Turbo (monorepo orchestration) |
 
@@ -53,7 +53,7 @@ A modern full-stack grocery management app built with Expo React Native, Firebas
 plateful/
 ├── apps/
 │   ├── mobile/          # Expo React Native app
-│   └── api/             # Vercel serverless functions
+│   └── api/             # Azure App Service API (Hono server)
 ├── packages/
 │   ├── shared/          # Shared types and utilities
 │   └── ui/              # Shared UI components
@@ -83,7 +83,7 @@ plateful/
         ┌──────────┴──────────┐
         │                     │
 ┌───────▼───────┐    ┌────────▼────────┐
-│  Firebase SDK │    │  Vercel API     │
+│  Firebase SDK │    │  Azure API      │
 │  (Client)     │    │  (REST/HTTP)    │
 └───────┬───────┘    └────────┬────────┘
         │                     │
@@ -91,21 +91,21 @@ plateful/
 │                    BACKEND LAYER                             │
 │                                                              │
 │  ┌────────────────────────┐    ┌─────────────────────────┐  │
-│  │  Firebase Services     │    │  Vercel Edge Functions  │  │
+│  │  Firebase Services     │    │  Azure App Service      │  │
 │  │                        │    │                         │  │
 │  │  • Authentication      │    │  • Custom Business      │  │
 │  │    - Email/Password    │    │    Logic                │  │
 │  │    - Google OAuth      │    │  • Third-party          │  │
 │  │                        │    │    Integrations         │  │
 │  │  • Firestore (NoSQL)   │    │  • Webhooks             │  │
-│  │    - Real-time sync    │    │                         │  │
-│  │    - Offline support   │    │  Runtime: Node 18.x     │  │
-│  │                        │    │  Framework: Hono        │  │
-│  │  • Cloud Storage       │    │                         │  │
+│  │    - Real-time sync    │    │  • Azure Cosmos DB      │  │
+│  │    - Offline support   │    │                         │  │
+│  │                        │    │  Runtime: Node 18.x     │  │
+│  │  • Cloud Storage       │    │  Framework: Hono        │  │
 │  │    - File uploads      │    │                         │  │
 │  │    - Secure rules      │    │                         │  │
 │  │                        │    │                         │  │
-│  │  Region: us-central1   │    │  Region: Global Edge    │  │
+│  │  Region: us-central1   │    │  Region: Azure Region   │  │
 │  └────────────────────────┘    └─────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -124,7 +124,7 @@ Mobile → Firestore SDK → Security Rules → Allow/Deny → Firestore DB
 
 **Custom API:**
 ```
-Mobile → HTTP Request → Vercel Function → Business Logic → Response
+Mobile → HTTP Request → Azure App Service → Business Logic → Response
 ```
 
 ---
@@ -139,7 +139,7 @@ Mobile → HTTP Request → Vercel Function → Business Logic → Response
 | **npm** | 9.0.0+ | Comes with Node.js (verify with `npm --version`) |
 | **Expo CLI** | Latest | Installed automatically with dependencies |
 | **Firebase CLI** | 12.0.0+ | `npm install -g firebase-tools` |
-| **Vercel CLI** | Latest | `npm install -g vercel` (optional) |
+| **Azure CLI** | 2.50.0+ | [Install Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) |
 
 ⚠️ **CRITICAL: Package Manager Requirement**
 - **MUST use npm** - Do NOT use pnpm, yarn, or other package managers
@@ -163,7 +163,7 @@ Mobile → HTTP Request → Vercel Function → Business Logic → Response
 ### Accounts Required
 
 - ✅ [Firebase Account](https://console.firebase.google.com) (free tier sufficient)
-- ✅ [Vercel Account](https://vercel.com) (optional, for API deployment)
+- ✅ [Azure Account](https://azure.microsoft.com/free/) (for API deployment)
 - ✅ [Expo Account](https://expo.dev) (optional, for EAS builds)
 
 ---
@@ -289,13 +289,13 @@ FIGMA_FILE_ID=YL6JUI6MAovP38M7iF7Xbw
 
 ✅ **Security Note:** `EXPO_PUBLIC_*` variables are bundled into the app. This is safe for Firebase config (protected by security rules), but never put actual secrets here.
 
-#### **3.2: API Configuration** (Optional)
+#### **3.2: API Configuration**
 
-Only needed if deploying Vercel functions:
+Required for Azure App Service deployment:
 
 ```bash
 cd apps/api
-cp .env.example .env.local
+cp .env.example .env
 ```
 
 ```bash
@@ -390,7 +390,7 @@ npm run dev
 
 # This starts:
 # - Mobile app (Metro bundler on port 8081)
-# - API (Vercel dev server on port 3000)
+# - API (Hono server on port 3001)
 ```
 
 ### Run Individual Apps
@@ -429,8 +429,8 @@ npm run api
 cd apps/api
 npm run dev
 
-# API will be available at http://localhost:3000
-# Test: curl http://localhost:3000/api/health
+# API will be available at http://localhost:3001
+# Test: curl http://localhost:3001/health
 ```
 
 ### Development Workflow
@@ -442,7 +442,7 @@ npm run dev
 
 2. **Make changes to code:**
    - Mobile app: Fast Refresh applies changes automatically
-   - API: Vercel dev server hot-reloads
+   - API: Hono dev server hot-reloads (via tsx)
 
 3. **Type check:**
    ```bash
@@ -535,13 +535,15 @@ plateful/
 │   │   ├── eas.json                  # EAS Build configuration
 │   │   └── package.json
 │   │
-│   └── api/                          # Vercel serverless API
+│   └── api/                          # Azure App Service API
 │       ├── api/
 │       │   ├── health.ts             # Health check endpoint
-│       │   └── [future routes]
+│       │   └── [other routes]
+│       ├── server.ts                 # Hono server entry point
+│       ├── dev-server.ts             # Development server
 │       ├── .env.example
-│       ├── .env.local                # Local environment (not committed)
-│       ├── vercel.json               # Vercel configuration
+│       ├── .env                      # Local environment (not committed)
+│       ├── Dockerfile                # Docker deployment (optional)
 │       └── package.json
 │
 ├── packages/
@@ -594,7 +596,8 @@ plateful/
 |-----------|---------|
 | `apps/mobile/app/` | Expo Router pages (file-based routing) |
 | `apps/mobile/src/` | Shared mobile app code (services, config) |
-| `apps/api/api/` | Vercel serverless function routes |
+| `apps/api/api/` | Hono API route handlers |
+| `apps/api/server.ts` | Main Hono server entry point |
 | `packages/shared/` | Shared types and utilities across apps |
 | `packages/ui/` | Reusable UI components |
 | `docs/` | Comprehensive documentation |
@@ -632,7 +635,8 @@ plateful/
 - ✅ Firestore NoSQL database
 - ✅ Cloud Storage for file uploads
 - ✅ Security rules (user-based access control)
-- ✅ Vercel API for custom logic
+- ✅ Azure App Service API for custom logic
+- ✅ Azure Cosmos DB for chat/recipe storage
 
 #### **Developer Experience**
 - ✅ TypeScript throughout
@@ -695,50 +699,74 @@ eas submit --platform ios
 eas submit --platform android
 ```
 
-### API Deployment (Vercel)
+### API Deployment (Azure App Service)
 
-#### **First-Time Setup**
+See the comprehensive deployment guide: **[docs/AZURE_DEPLOYMENT.md](docs/AZURE_DEPLOYMENT.md)**
+
+#### **Quick Start**
 
 ```bash
+# Prerequisites: Azure CLI installed and logged in
+az login
+
+# From project root, build dependencies
+npm run build --workspace=@plateful/shared
+npm run build --workspace=api
+
+# Navigate to API directory
 cd apps/api
 
-# Login to Vercel
-vercel login
+# Create deployment package (excludes node_modules, tests)
+# On Linux/macOS:
+zip -r deploy.zip . \
+  -x "node_modules/*" \
+  -x "__tests__/*" \
+  -x "*.test.ts" \
+  -x "*.test.js" \
+  -x "jest.config.js" \
+  -x ".env*" \
+  -x "dist/__tests__/*"
 
-# Deploy (will create project)
-vercel
+# On Windows PowerShell, use the deployment script:
+# cd apps/api/scripts
+# powershell -ExecutionPolicy Bypass -File deploy-docker.ps1
 
-# Answer prompts:
-# - Setup and deploy? Yes
-# - Which scope? [Your account]
-# - Link to existing project? No
-# - Project name? plateful-api
-# - In which directory? ./
-# - Override settings? No
+# Deploy to Azure App Service
+az webapp deployment source config-zip \
+  --resource-group rg-plateful \
+  --name plateful-api \
+  --src deploy.zip
+
+# Clean up
+rm deploy.zip  # or Remove-Item deploy.zip on Windows
 ```
 
 #### **Configure Environment Variables**
 
 ```bash
-# Via Vercel Dashboard:
-# 1. Project Settings → Environment Variables
-# 2. Add for: Production, Preview, Development
-# 3. Required variables:
-#    - FIREBASE_PROJECT_ID
-#    - FIREBASE_PRIVATE_KEY
-#    - FIREBASE_CLIENT_EMAIL
+# Set environment variables in Azure App Service
+az webapp config appsettings set \
+  --resource-group rg-plateful \
+  --name plateful-api \
+  --settings \
+    FIREBASE_PROJECT_ID=your-project-id \
+    FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..." \
+    FIREBASE_CLIENT_EMAIL=firebase-adminsdk-...@project.iam.gserviceaccount.com \
+    ANTHROPIC_API_KEY=sk-ant-... \
+    COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/ \
+    COSMOS_KEY=your-cosmos-key
 ```
 
-#### **Production Deployment**
+#### **Verify Deployment**
 
 ```bash
-# Deploy to production
-vercel --prod
+# Get your app URL
+az webapp show --name plateful-api --resource-group rg-plateful --query defaultHostName -o tsv
 
-# Verify
-curl https://your-project.vercel.app/api/health
+# Test health endpoint
+curl https://your-app-name.azurewebsites.net/health
 
-# Expected: {"status":"ok","timestamp":"..."}
+# Expected: {"status":"ok","timestamp":"...","service":"plateful-api","version":"1.0.0"}
 ```
 
 ### Firebase Deployment
@@ -913,14 +941,14 @@ cd apps/mobile
 EXPO_DEBUG=true npm run start
 ```
 
-#### **View Vercel Function Logs**
+#### **View Azure App Service Logs**
 
 ```bash
-# Real-time logs
-vercel logs --follow
+# Stream logs in real-time
+az webapp log tail --name plateful-api --resource-group rg-plateful
 
-# Logs for specific deployment
-vercel logs [deployment-url]
+# Download logs
+az webapp log download --name plateful-api --resource-group rg-plateful
 ```
 
 ### Getting Help
@@ -986,8 +1014,9 @@ npm run clean        # Clean .expo directory
 cd apps/api
 
 # Development
-npm run dev          # Start Vercel dev server
+npm run dev          # Start Hono dev server (port 3001)
 npm run type-check   # Type check only
+npm run build        # Build for production
 ```
 
 ---
@@ -1011,11 +1040,12 @@ npm run type-check   # Type check only
   npm install @react-native-async-storage/async-storage
   ```
 
-### Vercel Functions
+### Azure App Service
 
-- ⚠️ **Cold starts** - First request may take 50-100ms
-- ⚠️ **Timeout** - Free tier: 10s max execution time
-- ⚠️ **Region** - Deployed to all edge locations (may affect Firebase region latency)
+- ✅ **No cold starts** - Always-on Node.js process
+- ✅ **No timeout limits** - Unlike serverless functions
+- ✅ **Auto-scaling** - Configurable based on load
+- ⚠️ **Cost** - Pay for running instance (Basic tier ~$13/month)
 
 ### npm Workspaces
 
@@ -1069,3 +1099,4 @@ npm run type-check   # Type check only
 ## Additional Documentation
 
 - **[Backend Setup Guide](docs/BACKEND_SETUP.md)** - Comprehensive backend architecture and setup
+- **[Azure Deployment Guide](docs/AZURE_DEPLOYMENT.md)** - Complete Azure App Service deployment instructions
