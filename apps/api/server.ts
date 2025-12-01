@@ -227,6 +227,173 @@ app.get('/health', (c) => {
   });
 });
 
+// Stripe checkout success/cancel pages
+app.get('/upgrade', (c) => {
+  const success = c.req.query('success');
+  const canceled = c.req.query('canceled');
+  const sessionId = c.req.query('session_id');
+
+  if (success === 'true') {
+    // Success page
+    return c.html(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Payment Successful - Plateful</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              min-height: 100vh;
+              margin: 0;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: #333;
+            }
+            .container {
+              background: white;
+              border-radius: 16px;
+              padding: 40px;
+              max-width: 400px;
+              text-align: center;
+              box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            }
+            .success-icon {
+              font-size: 64px;
+              color: #10b981;
+              margin-bottom: 20px;
+            }
+            h1 {
+              color: #1f2937;
+              margin: 0 0 16px 0;
+              font-size: 24px;
+            }
+            p {
+              color: #6b7280;
+              margin: 0 0 24px 0;
+              line-height: 1.6;
+            }
+            .button {
+              display: inline-block;
+              padding: 12px 24px;
+              background: #667eea;
+              color: white;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              transition: background 0.2s;
+            }
+            .button:hover {
+              background: #5568d3;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="success-icon">✓</div>
+            <h1>Payment Successful!</h1>
+            <p>Your premium subscription has been activated. You can now close this page and return to the Plateful app.</p>
+            <p style="font-size: 14px; color: #9ca3af;">Your subscription will be active shortly.</p>
+          </div>
+          <script>
+            // Try to open the app via deep link after a short delay
+            setTimeout(() => {
+              try {
+                window.location.href = 'plateful://upgrade?success=true';
+              } catch (e) {
+                console.log('Could not open app deep link');
+              }
+            }, 2000);
+          </script>
+        </body>
+      </html>
+    `);
+  } else if (canceled === 'true') {
+    // Cancel page
+    return c.html(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Payment Canceled - Plateful</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              min-height: 100vh;
+              margin: 0;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: #333;
+            }
+            .container {
+              background: white;
+              border-radius: 16px;
+              padding: 40px;
+              max-width: 400px;
+              text-align: center;
+              box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            }
+            .cancel-icon {
+              font-size: 64px;
+              color: #ef4444;
+              margin-bottom: 20px;
+            }
+            h1 {
+              color: #1f2937;
+              margin: 0 0 16px 0;
+              font-size: 24px;
+            }
+            p {
+              color: #6b7280;
+              margin: 0 0 24px 0;
+              line-height: 1.6;
+            }
+            .button {
+              display: inline-block;
+              padding: 12px 24px;
+              background: #667eea;
+              color: white;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              transition: background 0.2s;
+            }
+            .button:hover {
+              background: #5568d3;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="cancel-icon">✕</div>
+            <h1>Payment Canceled</h1>
+            <p>Your payment was canceled. No charges were made. You can return to the Plateful app to try again.</p>
+          </div>
+          <script>
+            // Try to open the app via deep link after a short delay
+            setTimeout(() => {
+              try {
+                window.location.href = 'plateful://upgrade?canceled=true';
+              } catch (e) {
+                console.log('Could not open app deep link');
+              }
+            }, 2000);
+          </script>
+        </body>
+      </html>
+    `);
+  }
+
+  // Default redirect
+  return c.redirect('/health');
+});
+
 // Use PORT from environment (Azure provides this) or default to 3001
 const port = parseInt(process.env.PORT || '3001', 10);
 const hostname = '0.0.0.0'; // Listen on all interfaces

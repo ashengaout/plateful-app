@@ -49,10 +49,16 @@ export const createCheckoutSession = async (
 
 /**
  * Check subscription status for a user
+ * @param userID - The user ID to check
+ * @param syncFromStripe - If true, syncs the latest subscription status from Stripe (useful after payment)
  */
-export const checkSubscriptionStatus = async (userID: string): Promise<SubscriptionStatus> => {
+export const checkSubscriptionStatus = async (
+  userID: string,
+  syncFromStripe: boolean = false
+): Promise<SubscriptionStatus> => {
   try {
-    const response = await fetch(`${API_BASE}/api/payments/status/${userID}`, {
+    const url = `${API_BASE}/api/payments/status/${userID}${syncFromStripe ? '?sync=true' : ''}`;
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

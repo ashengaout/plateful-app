@@ -167,18 +167,52 @@ app.post('/webhook', async (c) => {
           return c.json({ error: 'Missing userID' }, 400);
         }
 
+        const customerId = typeof session.customer === 'string' 
+          ? session.customer 
+          : session.customer?.id || '';
+
+        // Ensure customer ID is saved to profile first
+        try {
+          let profile: FoodProfile | null = null;
+          try {
+            const response = await container.item(userID, userID).read();
+            profile = (response.resource as FoodProfile) || null;
+          } catch (error: any) {
+            if (error?.code !== 404 && error?.code !== 'NotFound' && error?.statusCode !== 404) {
+              console.error('Error reading profile:', error);
+            }
+          }
+
+          if (profile && customerId && !profile.stripeCustomerId) {
+            profile.stripeCustomerId = customerId;
+            profile.updatedAt = new Date().toISOString();
+            await container.items.upsert(profile);
+            console.log(`✅ Saved customer ID ${customerId} to profile for user ${userID}`);
+          }
+        } catch (error) {
+          console.error('Error saving customer ID to profile:', error);
+        }
+
         // Get subscription details
         const subscriptionId = typeof session.subscription === 'string' 
           ? session.subscription 
           : session.subscription?.id;
         if (subscriptionId) {
-          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-          await updateProfileSubscriptionStatus(
-            container,
-            userID,
-            subscription,
-            typeof session.customer === 'string' ? session.customer : session.customer?.id || ''
-          );
+          try {
+            const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+            await updateProfileSubscriptionStatus(
+              container,
+              userID,
+              subscription,
+              customerId
+            );
+            console.log(`✅ Updated profile subscription status from checkout.session.completed for user ${userID}`);
+          } catch (error) {
+            console.error('Error retrieving subscription in checkout.session.completed:', error);
+            // Don't fail the webhook - subscription.created will handle it
+          }
+        } else {
+          console.log('No subscription ID in checkout session');
         }
 
         return c.json({ received: true });
@@ -187,18 +221,37 @@ app.post('/webhook', async (c) => {
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription;
-        const userID = subscription.metadata?.userID;
+        let userID = subscription.metadata?.userID;
+        
+        // If userID not in subscription metadata, try to get it from customer metadata
+        if (!userID && subscription.customer) {
+          try {
+            const customerId = typeof subscription.customer === 'string' 
+              ? subscription.customer 
+              : subscription.customer.id;
+            const customer = await stripe.customers.retrieve(customerId);
+            // Check if customer is deleted
+            if (customer && !customer.deleted && 'metadata' in customer) {
+              userID = customer.metadata?.userID;
+            }
+          } catch (error) {
+            console.error('Error retrieving customer for userID:', error);
+          }
+        }
         
         if (!userID) {
-          console.error('No userID in subscription metadata');
-          return c.json({ error: 'Missing userID' }, 400);
+          console.error('No userID in subscription or customer metadata');
+          // Don't fail the webhook - just log and return success
+          // The checkout.session.completed event will handle the update
+          console.log('Skipping subscription update - userID not found. Will be handled by checkout.session.completed');
+          return c.json({ received: true, skipped: 'No userID found' });
         }
 
         await updateProfileSubscriptionStatus(
           container,
           userID,
           subscription,
-          subscription.customer as string
+          typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id || ''
         );
 
         return c.json({ received: true });
@@ -206,10 +259,26 @@ app.post('/webhook', async (c) => {
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription;
-        const userID = subscription.metadata?.userID;
+        let userID = subscription.metadata?.userID;
+        
+        // If userID not in subscription metadata, try to get it from customer metadata
+        if (!userID && subscription.customer) {
+          try {
+            const customerId = typeof subscription.customer === 'string' 
+              ? subscription.customer 
+              : subscription.customer.id;
+            const customer = await stripe.customers.retrieve(customerId);
+            // Check if customer is deleted
+            if (customer && !customer.deleted && 'metadata' in customer) {
+              userID = customer.metadata?.userID;
+            }
+          } catch (error) {
+            console.error('Error retrieving customer for userID:', error);
+          }
+        }
         
         if (!userID) {
-          console.error('No userID in subscription metadata');
+          console.error('No userID in subscription or customer metadata');
           return c.json({ error: 'Missing userID' }, 400);
         }
 
@@ -266,13 +335,19 @@ async function updateProfileSubscriptionStatus(
     const now = new Date().toISOString();
     const isActive = subscription.status === 'active' || subscription.status === 'trialing';
 
+    // Safely get currentPeriodEnd - handle both camelCase and snake_case, and null/undefined
+    const currentPeriodEnd = (subscription as any).currentPeriodEnd || (subscription as any).current_period_end;
+    const subscriptionCurrentPeriodEnd = currentPeriodEnd && typeof currentPeriodEnd === 'number' && !isNaN(currentPeriodEnd)
+      ? new Date(currentPeriodEnd * 1000).toISOString()
+      : undefined;
+
     if (profile) {
       // Update existing profile
       profile.isPremium = isActive;
       profile.stripeCustomerId = customerId;
       profile.stripeSubscriptionId = subscription.id;
       profile.subscriptionStatus = subscription.status as any;
-      profile.subscriptionCurrentPeriodEnd = new Date((subscription as any).current_period_end * 1000).toISOString();
+      profile.subscriptionCurrentPeriodEnd = subscriptionCurrentPeriodEnd;
       
       if (isActive && !profile.premiumPurchasedAt) {
         profile.premiumPurchasedAt = now;
@@ -294,7 +369,7 @@ async function updateProfileSubscriptionStatus(
         stripeCustomerId: customerId,
         stripeSubscriptionId: subscription.id,
         subscriptionStatus: subscription.status as any,
-        subscriptionCurrentPeriodEnd: new Date((subscription as any).current_period_end * 1000).toISOString(),
+        subscriptionCurrentPeriodEnd: subscriptionCurrentPeriodEnd,
         premiumPurchasedAt: isActive ? now : undefined,
         createdAt: now,
         updatedAt: now,
@@ -325,9 +400,15 @@ app.get('/status/:userID', async (c) => {
       return c.json({ error: 'Database not available' }, 503);
     }
 
-    const { resource: profile } = await container
-      .item(userID, userID)
-      .read<FoodProfile>();
+    let profile: FoodProfile | null = null;
+    try {
+      const response = await container.item(userID, userID).read();
+      profile = (response.resource as FoodProfile) || null;
+    } catch (error: any) {
+      if (error?.code !== 404 && error?.code !== 'NotFound' && error?.statusCode !== 404) {
+        console.error('Error reading profile:', error);
+      }
+    }
 
     if (!profile) {
       return c.json({ 
@@ -336,11 +417,78 @@ app.get('/status/:userID', async (c) => {
       });
     }
 
+    // If user has a Stripe customer ID but subscription status might be stale, sync from Stripe
+    const sync = c.req.query('sync') === 'true';
+    if (sync && process.env.STRIPE_SECRET_KEY) {
+      try {
+        let customerId = profile?.stripeCustomerId;
+        
+        // If no customer ID in profile, try to find customer by userID in metadata
+        if (!customerId) {
+          console.log(`No stripeCustomerId in profile for user ${userID}, searching by metadata...`);
+          const customers = await stripe.customers.search({
+            query: `metadata['userID']:'${userID}'`,
+            limit: 1,
+          });
+          
+          if (customers.data.length > 0) {
+            customerId = customers.data[0].id;
+            console.log(`Found customer ${customerId} for user ${userID}`);
+            
+            // Update profile with customer ID
+            if (profile) {
+              profile.stripeCustomerId = customerId;
+              profile.updatedAt = new Date().toISOString();
+              await container.items.upsert(profile);
+            }
+          } else {
+            console.log(`No customer found for user ${userID}`);
+            return c.json({
+              isPremium: profile?.isPremium || false,
+              subscriptionStatus: profile?.subscriptionStatus || null,
+              subscriptionCurrentPeriodEnd: profile?.subscriptionCurrentPeriodEnd || null,
+              stripeCustomerId: null,
+            });
+          }
+        }
+
+        // Fetch customer's subscriptions from Stripe
+        const subscriptions = await stripe.subscriptions.list({
+          customer: customerId,
+          status: 'all',
+          limit: 1,
+        });
+
+        if (subscriptions.data.length > 0) {
+          const subscription = subscriptions.data[0];
+          console.log(`Found subscription ${subscription.id} with status ${subscription.status} for user ${userID}`);
+          
+          // Update profile with latest subscription info
+          await updateProfileSubscriptionStatus(
+            container,
+            userID,
+            subscription,
+            customerId
+          );
+          
+          // Re-read the updated profile
+          const updatedResponse = await container.item(userID, userID).read();
+          profile = (updatedResponse.resource as FoodProfile) || null;
+          console.log(`✅ Synced subscription status for user ${userID} from Stripe`);
+        } else {
+          console.log(`No active subscriptions found for customer ${customerId}`);
+        }
+      } catch (error) {
+        console.error('Error syncing subscription from Stripe:', error);
+        // Continue with existing profile data if sync fails
+      }
+    }
+
     return c.json({
-      isPremium: profile.isPremium || false,
-      subscriptionStatus: profile.subscriptionStatus || null,
-      subscriptionCurrentPeriodEnd: profile.subscriptionCurrentPeriodEnd || null,
-      stripeCustomerId: profile.stripeCustomerId || null,
+      isPremium: profile?.isPremium || false,
+      subscriptionStatus: profile?.subscriptionStatus || null,
+      subscriptionCurrentPeriodEnd: profile?.subscriptionCurrentPeriodEnd || null,
+      stripeCustomerId: profile?.stripeCustomerId || null,
     });
   } catch (error) {
     console.error('Error fetching subscription status:', error);

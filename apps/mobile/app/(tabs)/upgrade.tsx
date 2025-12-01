@@ -7,8 +7,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Linking,
   Platform,
+  Linking,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +30,8 @@ export default function UpgradeScreen() {
     subscriptionCurrentPeriodEnd: string | null;
   } | null>(null);
   const [checkingStatus, setCheckingStatus] = useState(true);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [showUrlModal, setShowUrlModal] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -37,12 +41,40 @@ export default function UpgradeScreen() {
     }
   }, [user]);
 
-  const loadSubscriptionStatus = async () => {
+  // Handle deep links when returning from payment
+  useEffect(() => {
+    const handleDeepLink = (event: { url: string }) => {
+      const url = event.url;
+      if (url.includes('upgrade') && (url.includes('success=true') || url.includes('canceled=true'))) {
+        // User returned from payment, sync subscription status from Stripe
+        console.log('Deep link received, syncing subscription status from Stripe');
+        setTimeout(() => {
+          loadSubscriptionStatus(true); // Pass true to sync from Stripe
+        }, 2000); // Wait a moment for webhook to process
+      }
+    };
+
+    // Check initial URL (if app was opened via deep link)
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        handleDeepLink({ url });
+      }
+    });
+
+    // Listen for deep links while app is running
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const loadSubscriptionStatus = async (syncFromStripe: boolean = false) => {
     if (!user) return;
 
     try {
       setCheckingStatus(true);
-      const status = await checkSubscriptionStatus(user.uid);
+      const status = await checkSubscriptionStatus(user.uid, syncFromStripe);
       setSubscriptionStatus(status);
     } catch (error) {
       console.error('Failed to load subscription status:', error);
@@ -57,25 +89,19 @@ export default function UpgradeScreen() {
     try {
       setLoading(true);
 
-      // Create checkout session
-      const { checkoutUrl } = await createCheckoutSession(
+      // Create checkout session with API success/cancel URLs
+      // The API will show a success page that tries to deep link back to the app
+      const apiBase = API_BASE;
+      const { checkoutUrl: url } = await createCheckoutSession(
         user.uid,
-        `${API_BASE}/upgrade?success=true`,
-        `${API_BASE}/upgrade?canceled=true`
+        `${apiBase}/upgrade?success=true&session_id={CHECKOUT_SESSION_ID}`,
+        `${apiBase}/upgrade?canceled=true`
       );
 
-      // Open Stripe Checkout in browser
-      const canOpen = await Linking.canOpenURL(checkoutUrl);
-      if (canOpen) {
-        await Linking.openURL(checkoutUrl);
-        
-        // Poll for subscription status after a delay
-        setTimeout(() => {
-          loadSubscriptionStatus();
-        }, 3000);
-      } else {
-        Alert.alert('Error', 'Cannot open payment page');
-      }
+      // Show URL modal instead of opening browser directly
+      // This prevents emulator crashes
+      setCheckoutUrl(url);
+      setShowUrlModal(true);
     } catch (error) {
       console.error('Failed to create checkout session:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to start checkout';
@@ -196,6 +222,109 @@ export default function UpgradeScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* URL Modal - Shows checkout URL to prevent crashes */}
+      <Modal
+        visible={showUrlModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => {
+          setShowUrlModal(false);
+          setCheckoutUrl(null);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Complete Payment</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowUrlModal(false);
+                  setCheckoutUrl(null);
+                }}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalDescription}>
+              To complete your payment, please open this URL in your browser:
+            </Text>
+
+            {checkoutUrl && (
+              <View style={styles.urlContainer}>
+                <TextInput
+                  style={styles.urlInput}
+                  value={checkoutUrl}
+                  editable={false}
+                  multiline
+                  selectTextOnFocus
+                />
+              </View>
+            )}
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.openButton]}
+                onPress={async () => {
+                  if (checkoutUrl) {
+                    try {
+                      // Try to open URL - this is safer than WebBrowser
+                      const canOpen = await Linking.canOpenURL(checkoutUrl);
+                      if (canOpen) {
+                        await Linking.openURL(checkoutUrl);
+                        // Close modal and sync status from Stripe after a delay
+                        setShowUrlModal(false);
+                        setTimeout(() => {
+                          loadSubscriptionStatus(true); // Sync from Stripe
+                        }, 3000);
+                      } else {
+                        Alert.alert('Error', 'Cannot open this URL. Please copy it manually.');
+                      }
+                    } catch (error) {
+                      console.error('Failed to open URL:', error);
+                      Alert.alert('Error', 'Failed to open URL. Please copy it manually.');
+                    }
+                  }
+                }}
+              >
+                <Ionicons name="open-outline" size={20} color={colors.surface} />
+                <Text style={styles.modalButtonText}>Open in Browser</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.copyButton]}
+                onPress={() => {
+                  if (checkoutUrl) {
+                    // For now, just show an alert with the URL
+                    // In a real app, you'd use Clipboard API
+                    Alert.alert(
+                      'Payment URL',
+                      checkoutUrl,
+                      [
+                        {
+                          text: 'OK',
+                          onPress: () => {
+                            console.log('Payment URL:', checkoutUrl);
+                          },
+                        },
+                      ]
+                    );
+                  }
+                }}
+              >
+                <Ionicons name="copy-outline" size={20} color={colors.primary} />
+                <Text style={[styles.modalButtonText, styles.copyButtonText]}>Copy URL</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalNote}>
+              After completing payment, return to the app and your subscription will be activated.
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -350,6 +479,91 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.textPrimary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalDescription: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginBottom: 16,
+    lineHeight: 22,
+  },
+  urlContainer: {
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+  },
+  urlInput: {
+    padding: 12,
+    fontSize: 14,
+    color: colors.textPrimary,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  modalButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+  openButton: {
+    backgroundColor: colors.primary,
+  },
+  copyButton: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.surface,
+  },
+  copyButtonText: {
+    color: colors.primary,
+  },
+  modalNote: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });
 
