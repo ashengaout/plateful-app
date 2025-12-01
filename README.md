@@ -298,6 +298,29 @@ cd apps/api
 cp .env.example .env
 ```
 
+**Required Variables (`apps/api/.env`):**
+
+```bash
+# Anthropic Claude API (for recipe generation)
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Azure Cosmos DB
+COSMOS_ENDPOINT=https://your-cosmos.documents.azure.com:443/
+COSMOS_KEY=your-cosmos-key
+COSMOS_DATABASE=plateful-core
+
+# YouTube API (optional, for tutorial search)
+YOUTUBE_API_KEY=AIza...
+
+# Stripe Payment Integration (for premium subscriptions)
+STRIPE_SECRET_KEY=sk_test_...  # Use test key (sk_test_...) for development
+STRIPE_WEBHOOK_SECRET=whsec_...  # From Stripe Dashboard → Webhooks
+STRIPE_PRICE_ID=price_...  # Monthly subscription price ID from Stripe Dashboard
+
+# Optional: App URL for webhook callbacks
+APP_URL=https://your-app.azurewebsites.net
+```
+
 ```bash
 # Firebase Admin SDK (get from Firebase Console → Service Accounts)
 FIREBASE_PROJECT_ID=plateful-mvp
@@ -754,7 +777,11 @@ az webapp config appsettings set \
     FIREBASE_CLIENT_EMAIL=firebase-adminsdk-...@project.iam.gserviceaccount.com \
     ANTHROPIC_API_KEY=sk-ant-... \
     COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/ \
-    COSMOS_KEY=your-cosmos-key
+    COSMOS_KEY=your-cosmos-key \
+    STRIPE_SECRET_KEY=sk_test_... \
+    STRIPE_WEBHOOK_SECRET=whsec_... \
+    STRIPE_PRICE_ID=price_... \
+    APP_URL=https://your-app.azurewebsites.net
 ```
 
 #### **Verify Deployment**

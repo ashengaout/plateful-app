@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '@plateful/ui';
 import Header from '../src/components/Header';
+import PremiumLock from '../src/components/PremiumLock';
 import { auth } from '../src/config/firebase';
 import { API_BASE } from '../src/config/api';
 import type { FoodProfile } from '@plateful/shared';
@@ -623,11 +624,23 @@ export default function ProfileScreen() {
     onToggle: (item: string) => void,
     customTags: string[],
     onCustomChange: (tags: string[]) => void,
-    onToggleCustom: (item: string) => void
+    onToggleCustom: (item: string) => void,
+    requiresPremium: boolean = false
   ) => {
+    const isPremium = profile?.isPremium || false;
+    const showPremiumLock = requiresPremium && !isPremium;
+
     return (
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{title}</Text>
+        <View style={styles.sectionTitleRow}>
+          <Text style={styles.sectionTitle}>{title}</Text>
+          {isPremium && requiresPremium && (
+            <View style={styles.premiumBadge}>
+              <Ionicons name="star" size={16} color={colors.primary} />
+              <Text style={styles.premiumBadgeText}>Premium</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.pillContainer}>
           {customTags.map(item => (
             <TouchableOpacity
@@ -675,29 +688,38 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={styles.customLabel}>Add custom item:</Text>
-        <TagInput 
-          value={customTags} 
-          onChange={(newTags) => {
-            const removed = customTags.filter(t => !newTags.includes(t));
-            const added = newTags.filter(t => !customTags.includes(t));
-            
-            onCustomChange(newTags);
-            
-            removed.forEach(tag => {
-              if (selected.includes(tag)) {
-                onToggle(tag);
-              }
-            });
-            
-            added.forEach(tag => {
-              if (!selected.includes(tag)) {
-                onToggle(tag);
-              }
-            });
-          }}
-          placeholder="Add custom item..." 
-        />
+        {showPremiumLock ? (
+          <PremiumLock 
+            featureName={`custom ${title.toLowerCase()}`}
+            message={`Add custom ${title.toLowerCase()} with a premium subscription`}
+          />
+        ) : (
+          <>
+            <Text style={styles.customLabel}>Add custom item:</Text>
+            <TagInput 
+              value={customTags} 
+              onChange={(newTags) => {
+                const removed = customTags.filter(t => !newTags.includes(t));
+                const added = newTags.filter(t => !customTags.includes(t));
+                
+                onCustomChange(newTags);
+                
+                removed.forEach(tag => {
+                  if (selected.includes(tag)) {
+                    onToggle(tag);
+                  }
+                });
+                
+                added.forEach(tag => {
+                  if (!selected.includes(tag)) {
+                    onToggle(tag);
+                  }
+                });
+              }}
+              placeholder="Add custom item..." 
+            />
+          </>
+        )}
       </View>
     );
   };
@@ -810,7 +832,8 @@ export default function ProfileScreen() {
               (item) => toggleSelection(item, likes, setLikes),
               likesCustom,
               setLikesCustom,
-              (item) => toggleSelection(item, likes, setLikes)
+              (item) => toggleSelection(item, likes, setLikes),
+              true // requires premium
             )}
 
             {renderPillSection(
@@ -820,7 +843,8 @@ export default function ProfileScreen() {
               (item) => toggleSelection(item, dislikes, setDislikes),
               dislikesCustom,
               setDislikesCustom,
-              (item) => toggleSelection(item, dislikes, setDislikes)
+              (item) => toggleSelection(item, dislikes, setDislikes),
+              true // requires premium
             )}
 
             {renderPillSection(
@@ -830,7 +854,8 @@ export default function ProfileScreen() {
               (item) => toggleSelection(item, allergens, setAllergens),
               allergensCustom,
               setAllergensCustom,
-              (item) => toggleSelection(item, allergens, setAllergens)
+              (item) => toggleSelection(item, allergens, setAllergens),
+              true // requires premium
             )}
 
             {renderPillSection(
@@ -986,11 +1011,31 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 32,
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
     color: colors.textPrimary,
-    marginBottom: 16,
+    flex: 1,
+  },
+  premiumBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  premiumBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.primary,
+    marginLeft: 4,
   },
   sectionDescription: {
     fontSize: 14,

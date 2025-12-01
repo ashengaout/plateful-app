@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getContainer, isCosmosAvailable } from '../lib/cosmos';
 import type { FoodProfile } from '@plateful/shared';
+import { COMMON_LIKES, COMMON_DISLIKES, COMMON_ALLERGENS } from '@plateful/shared';
 
 const app = new Hono();
 
@@ -71,11 +72,13 @@ app.put('/:userID', async (c) => {
     
     console.log(`✅ Container found, processing profile update...`);
 
-    // Check if profile exists
+    // Check if profile exists and get premium status
     let existingProfile: FoodProfile | null = null;
+    let isPremium = false;
     try {
       const response = await container.item(userID, userID).read<FoodProfile>();
       existingProfile = response.resource || null;
+      isPremium = existingProfile?.isPremium || false;
     } catch (error: any) {
       // Profile doesn't exist yet (404 is expected), will create new one
       // Cosmos DB throws 404 when item doesn't exist - this is normal
@@ -84,6 +87,25 @@ app.put('/:userID', async (c) => {
       } else {
         console.warn('Unexpected error checking for existing profile:', error);
         // Don't throw - we'll still try to create the profile
+      }
+    }
+
+    // Validate premium features: custom likes, dislikes, and allergens
+    if (!isPremium) {
+      // Check if user is trying to add custom items (not in common lists)
+      const customLikes = likes.filter(item => !COMMON_LIKES.includes(item));
+      const customDislikes = dislikes.filter(item => !COMMON_DISLIKES.includes(item));
+      const customAllergens = allergens.filter(item => !COMMON_ALLERGENS.includes(item));
+
+      if (customLikes.length > 0 || customDislikes.length > 0 || customAllergens.length > 0) {
+        return c.json({ 
+          error: 'Premium subscription required for custom preferences',
+          details: {
+            customLikes: customLikes.length,
+            customDislikes: customDislikes.length,
+            customAllergens: customAllergens.length,
+          }
+        }, 403);
       }
     }
 
@@ -102,6 +124,13 @@ app.put('/:userID', async (c) => {
       restrictions: Array.isArray(restrictions) ? restrictions : [],
       preferredEquipment: preferredEquipment !== undefined ? (Array.isArray(preferredEquipment) ? preferredEquipment : []) : existingProfile?.preferredEquipment,
       unavailableEquipment: unavailableEquipment !== undefined ? (Array.isArray(unavailableEquipment) ? unavailableEquipment : []) : existingProfile?.unavailableEquipment,
+      // Preserve subscription fields from existing profile
+      isPremium: existingProfile?.isPremium || false,
+      premiumPurchasedAt: existingProfile?.premiumPurchasedAt,
+      stripeCustomerId: existingProfile?.stripeCustomerId,
+      stripeSubscriptionId: existingProfile?.stripeSubscriptionId,
+      subscriptionStatus: existingProfile?.subscriptionStatus,
+      subscriptionCurrentPeriodEnd: existingProfile?.subscriptionCurrentPeriodEnd,
       createdAt: existingProfile?.createdAt || now,
       updatedAt: now,
     };

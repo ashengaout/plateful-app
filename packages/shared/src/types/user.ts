@@ -34,6 +34,13 @@ export interface FoodProfile {
   restrictions: string[];
   preferredEquipment?: string[]; // Soft preference (prefer but not required)
   unavailableEquipment?: string[]; // Hard filter (exclude recipes requiring these)
+  // Premium subscription fields
+  isPremium?: boolean; // Indicates if user has active premium subscription (defaults to false)
+  premiumPurchasedAt?: string; // ISO timestamp of subscription start
+  stripeCustomerId?: string; // Stripe customer ID for future reference
+  stripeSubscriptionId?: string; // Stripe subscription ID for managing subscription
+  subscriptionStatus?: 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete' | 'incomplete_expired' | 'unpaid'; // Current subscription status
+  subscriptionCurrentPeriodEnd?: string; // ISO timestamp of when current billing period ends
   createdAt: string;
   updatedAt: string;
 }
