@@ -153,19 +153,23 @@ app.post('/', async (c) => {
     console.log(`🔍 Searching for recipes: ${intent.searchQuery}`);
     let searchResults: RecipeSearchResult[] = [];
     
+    // Only use profile if user has premium subscription
+    const profileForSearch = profile && profile.isPremium ? profile : null;
+    
     try {
-      // First try strict search (filter out recipes with allergens/restrictions)
-      searchResults = await searchRecipe(intent.searchQuery, profile, false);
+      // First try strict search (filter out recipes with allergens/restrictions) - only if premium
+      searchResults = await searchRecipe(intent.searchQuery, profileForSearch, false);
       console.log(`✅ Found ${searchResults.length} recipe options (strict search - no allergens)`);
     } catch (searchError) {
       console.warn('⚠️ Strict search found no recipes matching restrictions, trying relaxed search...');
       
       // If strict search fails, try relaxed search (get any recipe - we'll substitute allergens)
-      const hasRestrictions = profile && (profile.allergens?.length > 0 || profile.restrictions?.length > 0);
+      // Only check restrictions if user is premium
+      const hasRestrictions = profile && profile.isPremium && (profile.allergens?.length > 0 || profile.restrictions?.length > 0);
       
       if (hasRestrictions) {
         try {
-          searchResults = await searchRecipe(intent.searchQuery, profile, true);
+          searchResults = await searchRecipe(intent.searchQuery, profileForSearch, true);
           console.log(`✅ Found ${searchResults.length} recipe options (relaxed search - will auto-substitute allergens)`);
         } catch (relaxedError) {
           console.error('❌ Both strict and relaxed searches failed:', relaxedError);
@@ -188,12 +192,14 @@ app.post('/', async (c) => {
     
     if (!searchResults || searchResults.length === 0) {
       // If strict search returned empty, try relaxed
-      const hasRestrictions = profile && (profile.allergens?.length > 0 || profile.restrictions?.length > 0);
+      // Only check restrictions if user is premium
+      const hasRestrictions = profile && profile.isPremium && (profile.allergens?.length > 0 || profile.restrictions?.length > 0);
+      const profileForSearch = profile && profile.isPremium ? profile : null;
       
       if (hasRestrictions) {
         try {
           console.log('⚠️ Strict search returned no results, trying relaxed search...');
-          searchResults = await searchRecipe(intent.searchQuery, profile, true);
+          searchResults = await searchRecipe(intent.searchQuery, profileForSearch, true);
           console.log(`✅ Found ${searchResults.length} recipe options (relaxed search - will auto-substitute allergens)`);
         } catch (relaxedError) {
           console.error('❌ Relaxed search also failed:', relaxedError);
@@ -214,8 +220,8 @@ app.post('/', async (c) => {
     }
 
     // Step 3.5: Rank search results by preferred equipment (post-search ranking)
-    // Preferred equipment is a soft preference - we rank but don't filter
-    if (profile && profile.preferredEquipment && profile.preferredEquipment.length > 0) {
+    // Preferred equipment is a soft preference - we rank but don't filter (only if premium)
+    if (profile && profile.isPremium && profile.preferredEquipment && profile.preferredEquipment.length > 0) {
       console.log(`🎯 Ranking ${searchResults.length} results by preferred equipment: ${profile.preferredEquipment.join(', ')}`);
       
       // We'll check equipment during scraping, but for now just log
@@ -251,7 +257,9 @@ app.post('/', async (c) => {
         // Step 5: Format recipe
         console.log(`🎨 Formatting recipe data...`);
         try {
-          recipeData = await formatRecipe(scrapeResult.content, searchResult.url, profile);
+          // Only pass profile if user has premium subscription
+          const profileForFormat = profile && profile.isPremium ? profile : null;
+          recipeData = await formatRecipe(scrapeResult.content, searchResult.url, profileForFormat);
         } catch (formatError) {
           console.error(`❌ Failed to format recipe from ${domain}:`, formatError);
           lastError = formatError instanceof Error ? formatError : new Error(String(formatError));

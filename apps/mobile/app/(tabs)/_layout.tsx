@@ -173,6 +173,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="upgrade"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
         name="firebase-test"
         options={{
           href: null,

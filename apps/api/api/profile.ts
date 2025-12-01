@@ -90,20 +90,17 @@ app.put('/:userID', async (c) => {
       }
     }
 
-    // Validate premium features: custom likes, dislikes, and allergens
+    // Validate premium features: ALL preferences require premium
     if (!isPremium) {
-      // Check if user is trying to add custom items (not in common lists)
-      const customLikes = likes.filter(item => !COMMON_LIKES.includes(item));
-      const customDislikes = dislikes.filter(item => !COMMON_DISLIKES.includes(item));
-      const customAllergens = allergens.filter(item => !COMMON_ALLERGENS.includes(item));
-
-      if (customLikes.length > 0 || customDislikes.length > 0 || customAllergens.length > 0) {
+      // Block ALL preferences if not premium
+      if (likes.length > 0 || dislikes.length > 0 || allergens.length > 0 || restrictions.length > 0) {
         return c.json({ 
-          error: 'Premium subscription required for custom preferences',
+          error: 'Premium subscription required for all preferences',
           details: {
-            customLikes: customLikes.length,
-            customDislikes: customDislikes.length,
-            customAllergens: customAllergens.length,
+            likes: likes.length,
+            dislikes: dislikes.length,
+            allergens: allergens.length,
+            restrictions: restrictions.length,
           }
         }, 403);
       }

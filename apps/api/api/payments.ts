@@ -496,5 +496,69 @@ app.get('/status/:userID', async (c) => {
   }
 });
 
+/**
+ * Cancel subscription for a user
+ * POST /payments/cancel-subscription
+ */
+app.post('/cancel-subscription', async (c) => {
+  if (!isCosmosAvailable()) {
+    return c.json({ error: 'Payment service not available' }, 503);
+  }
+
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return c.json({ error: 'Stripe not configured' }, 503);
+  }
+
+  try {
+    const { userID } = await c.req.json<{ userID: string }>();
+
+    if (!userID) {
+      return c.json({ error: 'userID is required' }, 400);
+    }
+
+    const container = getContainer('userProfiles');
+    if (!container) {
+      return c.json({ error: 'Database not available' }, 503);
+    }
+
+    // Get user profile
+    let profile: FoodProfile | null = null;
+    try {
+      const response = await container.item(userID, userID).read();
+      profile = (response.resource as FoodProfile) || null;
+    } catch (error: any) {
+      if (error?.code !== 404 && error?.code !== 'NotFound' && error?.statusCode !== 404) {
+        console.error('Error fetching profile:', error);
+        return c.json({ error: 'Failed to fetch profile' }, 500);
+      }
+    }
+
+    if (!profile || !profile.stripeSubscriptionId) {
+      return c.json({ error: 'No active subscription found' }, 404);
+    }
+
+    // Cancel the subscription in Stripe
+    const subscription = await stripe.subscriptions.cancel(profile.stripeSubscriptionId);
+
+    // Update profile to reflect canceled subscription
+    profile.isPremium = false;
+    profile.subscriptionStatus = 'canceled';
+    profile.updatedAt = new Date().toISOString();
+    await container.items.upsert(profile);
+
+    console.log(`✅ Canceled subscription for user ${userID}`);
+
+    return c.json({ 
+      success: true,
+      message: 'Subscription canceled successfully',
+      subscriptionStatus: 'canceled'
+    });
+  } catch (error) {
+    console.error('Error canceling subscription:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to cancel subscription';
+    return c.json({ error: errorMessage }, 500);
+  }
+});
+
 export default app;
 

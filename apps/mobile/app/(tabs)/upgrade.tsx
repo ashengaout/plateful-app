@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   pricingAmount: {
     fontSize: 32,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.surface,
     marginBottom: 4,
   },
   pricingNote: {

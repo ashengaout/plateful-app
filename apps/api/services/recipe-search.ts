@@ -37,8 +37,9 @@ export async function searchRecipe(
   console.log(`🔍 Searching for recipe: "${modifiedSearchQuery}" (original: "${searchQuery}")`);
 
   // Build dietary restrictions context for search
+  // Only use profile preferences if user has premium subscription
   let restrictionsNote = '';
-  if (profile) {
+  if (profile && profile.isPremium) {
     const restrictions: string[] = [];
     if (profile.allergens && profile.allergens.length > 0) {
       restrictions.push(`allergen-free: ${profile.allergens.join(', ')}`);
@@ -57,9 +58,9 @@ export async function searchRecipe(
     }
   }
 
-  // Build cooking proficiency context for search
+  // Build cooking proficiency context for search (only if premium)
   let proficiencyNote = '';
-  if (profile?.cookingProficiency) {
+  if (profile?.isPremium && profile?.cookingProficiency) {
     if (profile.cookingProficiency === 1 || profile.cookingProficiency === 2) {
       // Levels 1-2: Emphasize simple, beginner-friendly recipes
       proficiencyNote = `\n\nIMPORTANT: Prioritize simple, beginner-friendly recipes with clear step-by-step instructions.`;
@@ -70,12 +71,12 @@ export async function searchRecipe(
     // Level 3: No special context (neutral)
   }
 
-  // Build equipment context for search
+  // Build equipment context for search (only if premium)
   // NOTE: Preferred equipment is NOT included in search query - it's too restrictive
   // (e.g., searching "noodle dish dutch oven" would fail). Preferred equipment is used
   // for post-search ranking instead.
   let equipmentNote = '';
-  if (profile) {
+  if (profile && profile.isPremium) {
     if (profile.unavailableEquipment && profile.unavailableEquipment.length > 0) {
       equipmentNote = `\n\nCRITICAL: Do NOT return recipes that require: ${profile.unavailableEquipment.join(', ')}. These are hard filters - exclude any recipe that needs these.`;
     }

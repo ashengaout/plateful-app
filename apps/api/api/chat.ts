@@ -271,7 +271,8 @@ app.all('*', async (c, next) => {
 
       let systemPrompt = "You are a helpful recipe assistant for the Plateful app. Help users discover delicious recipes through friendly conversation. Ask follow-up questions to understand their preferences, suggest dishes, and guide them toward finding the perfect recipe. Keep responses conversational, helpful, and food-focused." + recipeContext + pantryContext;
       
-      if (profile) {
+      // Only use profile preferences if user has premium subscription
+      if (profile && profile.isPremium) {
         const restrictions: string[] = [];
         const allergens: string[] = [];
         
@@ -914,7 +915,8 @@ app.post('/ai-response', async (c) => {
     // Build system prompt with strict dietary restrictions
     let systemPrompt = "You are a helpful recipe assistant for the Plateful app. Help users discover delicious recipes through friendly conversation. Ask follow-up questions to understand their preferences, suggest dishes, and guide them toward finding the perfect recipe. Keep responses conversational, helpful, and food-focused." + recipeContext + pantryContext;
     
-    if (profile) {
+    // Only use profile preferences if user has premium subscription
+    if (profile && profile.isPremium) {
       // CRITICAL: Build strict restriction enforcement
       const restrictions: string[] = [];
       const allergens: string[] = [];
@@ -1076,7 +1078,7 @@ app.post('/ai-response', async (c) => {
         const proficiencyLabel = proficiencyLabels[profile.cookingProficiency] || profile.cookingProficiency.toString();
         systemPrompt += `\n👨‍🍳 User cooking skill level: ${proficiencyLabel} (${profile.cookingProficiency}/5). Adjust recipe complexity and instructions accordingly. For beginners, provide more detailed step-by-step instructions. For advanced cooks, you can assume knowledge of techniques and terminology.\n`;
       }
-    }
+    } // End of premium check
 
     // Generate AI response using Claude
     const response = await client.messages.create({

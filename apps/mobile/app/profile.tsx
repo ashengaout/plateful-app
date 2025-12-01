@@ -481,14 +481,14 @@ export default function ProfileScreen() {
           setFatTarget('');
         }
         
-        const likesCommon = loadedProfile.likes.filter(l => COMMON_LIKES.includes(l));
-        const likesCustom_ = loadedProfile.likes.filter(l => !COMMON_LIKES.includes(l));
-        const dislikesCommon = loadedProfile.dislikes.filter(d => COMMON_DISLIKES.includes(d));
-        const dislikesCustom_ = loadedProfile.dislikes.filter(d => !COMMON_DISLIKES.includes(d));
-        const allergensCommon = loadedProfile.allergens.filter(a => COMMON_ALLERGENS.includes(a));
-        const allergensCustom_ = loadedProfile.allergens.filter(a => !COMMON_ALLERGENS.includes(a));
-        const restrictionsCommon = loadedProfile.restrictions.filter(r => COMMON_RESTRICTIONS.includes(r));
-        const restrictionsCustom_ = loadedProfile.restrictions.filter(r => !COMMON_RESTRICTIONS.includes(r));
+        const likesCommon = loadedProfile.likes.filter((l: string) => COMMON_LIKES.includes(l));
+        const likesCustom_ = loadedProfile.likes.filter((l: string) => !COMMON_LIKES.includes(l));
+        const dislikesCommon = loadedProfile.dislikes.filter((d: string) => COMMON_DISLIKES.includes(d));
+        const dislikesCustom_ = loadedProfile.dislikes.filter((d: string) => !COMMON_DISLIKES.includes(d));
+        const allergensCommon = loadedProfile.allergens.filter((a: string) => COMMON_ALLERGENS.includes(a));
+        const allergensCustom_ = loadedProfile.allergens.filter((a: string) => !COMMON_ALLERGENS.includes(a));
+        const restrictionsCommon = loadedProfile.restrictions.filter((r: string) => COMMON_RESTRICTIONS.includes(r));
+        const restrictionsCustom_ = loadedProfile.restrictions.filter((r: string) => !COMMON_RESTRICTIONS.includes(r));
 
         setLikes([...likesCommon, ...likesCustom_]);
         setLikesCustom(likesCustom_);
@@ -501,14 +501,14 @@ export default function ProfileScreen() {
 
         // Load equipment preferences
         const preferredEquipmentList = loadedProfile.preferredEquipment || [];
-        const preferredCommon = preferredEquipmentList.filter(e => COMMON_EQUIPMENT.includes(e));
-        const preferredCustom_ = preferredEquipmentList.filter(e => !COMMON_EQUIPMENT.includes(e));
+        const preferredCommon = preferredEquipmentList.filter((e: string) => COMMON_EQUIPMENT.includes(e));
+        const preferredCustom_ = preferredEquipmentList.filter((e: string) => !COMMON_EQUIPMENT.includes(e));
         setPreferredEquipment([...preferredCommon, ...preferredCustom_]);
         setPreferredEquipmentCustom(preferredCustom_);
 
         const unavailableEquipmentList = loadedProfile.unavailableEquipment || [];
-        const unavailableCommon = unavailableEquipmentList.filter(e => COMMON_EQUIPMENT.includes(e));
-        const unavailableCustom_ = unavailableEquipmentList.filter(e => !COMMON_EQUIPMENT.includes(e));
+        const unavailableCommon = unavailableEquipmentList.filter((e: string) => COMMON_EQUIPMENT.includes(e));
+        const unavailableCustom_ = unavailableEquipmentList.filter((e: string) => !COMMON_EQUIPMENT.includes(e));
         setUnavailableEquipment([...unavailableCommon, ...unavailableCustom_]);
         setUnavailableEquipmentCustom(unavailableCustom_);
       } else if (response.status === 404) {
@@ -628,7 +628,7 @@ export default function ProfileScreen() {
     requiresPremium: boolean = false
   ) => {
     const isPremium = profile?.isPremium || false;
-    const showPremiumLock = requiresPremium && !isPremium;
+    const showPremiumLock = !isPremium; // Lock ALL preferences behind premium
 
     return (
       <View style={styles.section}>
@@ -641,25 +641,32 @@ export default function ProfileScreen() {
             </View>
           )}
         </View>
-        <View style={styles.pillContainer}>
+        <View style={[styles.pillContainer, showPremiumLock && styles.pillContainerDisabled]}>
           {customTags.map(item => (
             <TouchableOpacity
               key={`custom-${item}`}
               style={[
                 styles.pill,
                 selected.includes(item) && styles.pillSelected,
+                showPremiumLock && styles.pillDisabled,
               ]}
-              onPress={() => onToggleCustom(item)}
+              onPress={() => {
+                if (!showPremiumLock) {
+                  onToggleCustom(item);
+                }
+              }}
+              disabled={showPremiumLock}
             >
               <Text
                 style={[
                   styles.pillText,
                   selected.includes(item) && styles.pillTextSelected,
+                  showPremiumLock && styles.pillTextDisabled,
                 ]}
               >
                 {item}
               </Text>
-              {selected.includes(item) && (
+              {selected.includes(item) && !showPremiumLock && (
                 <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginLeft: 4 }} />
               )}
             </TouchableOpacity>
@@ -671,18 +678,25 @@ export default function ProfileScreen() {
               style={[
                 styles.pill,
                 selected.includes(item) && styles.pillSelected,
+                showPremiumLock && styles.pillDisabled,
               ]}
-              onPress={() => onToggle(item)}
+              onPress={() => {
+                if (!showPremiumLock) {
+                  onToggle(item);
+                }
+              }}
+              disabled={showPremiumLock}
             >
               <Text
                 style={[
                   styles.pillText,
                   selected.includes(item) && styles.pillTextSelected,
+                  showPremiumLock && styles.pillTextDisabled,
                 ]}
               >
                 {item}
               </Text>
-              {selected.includes(item) && (
+              {selected.includes(item) && !showPremiumLock && (
                 <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginLeft: 4 }} />
               )}
             </TouchableOpacity>
@@ -690,8 +704,8 @@ export default function ProfileScreen() {
         </View>
         {showPremiumLock ? (
           <PremiumLock 
-            featureName={`custom ${title.toLowerCase()}`}
-            message={`Add custom ${title.toLowerCase()} with a premium subscription`}
+            featureName={`${title.toLowerCase()}`}
+            message={`Unlock ${title.toLowerCase()} preferences with a premium subscription`}
           />
         ) : (
           <>
@@ -865,7 +879,8 @@ export default function ProfileScreen() {
               (item) => toggleSelection(item, restrictions, setRestrictions),
               restrictionsCustom,
               setRestrictionsCustom,
-              (item) => toggleSelection(item, restrictions, setRestrictions)
+              (item) => toggleSelection(item, restrictions, setRestrictions),
+              true // requires premium
             )}
 
             {renderPillSection(
@@ -875,7 +890,8 @@ export default function ProfileScreen() {
               (item) => toggleSelection(item, preferredEquipment, setPreferredEquipment),
               preferredEquipmentCustom,
               setPreferredEquipmentCustom,
-              (item) => toggleSelection(item, preferredEquipment, setPreferredEquipment)
+              (item) => toggleSelection(item, preferredEquipment, setPreferredEquipment),
+              true // requires premium
             )}
 
             {renderPillSection(
@@ -885,7 +901,8 @@ export default function ProfileScreen() {
               (item) => toggleSelection(item, unavailableEquipment, setUnavailableEquipment),
               unavailableEquipmentCustom,
               setUnavailableEquipmentCustom,
-              (item) => toggleSelection(item, unavailableEquipment, setUnavailableEquipment)
+              (item) => toggleSelection(item, unavailableEquipment, setUnavailableEquipment),
+              true // requires premium
             )}
           </>
         )}
@@ -1296,5 +1313,14 @@ const styles = StyleSheet.create({
     color: '#FF6B9D', // Bright pink for playful text
     textAlign: 'center',
     lineHeight: 20,
+  },
+  pillContainerDisabled: {
+    opacity: 0.5,
+  },
+  pillDisabled: {
+    opacity: 0.6,
+  },
+  pillTextDisabled: {
+    color: colors.textSecondary,
   },
 });

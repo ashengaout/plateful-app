@@ -10,9 +10,9 @@ export async function formatRecipe(scrapedContent: string, sourceUrl: string, pr
     apiKey: process.env.ANTHROPIC_API_KEY 
   });
 
-  // Build profile compliance check
+  // Build profile compliance check (only if premium)
   let complianceNote = '';
-  if (profile) {
+  if (profile && profile.isPremium) {
     const restrictions: string[] = [];
     if (profile.allergens && profile.allergens.length > 0) {
       restrictions.push(`allergens: ${profile.allergens.join(', ')}`);
