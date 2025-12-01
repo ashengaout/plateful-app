@@ -394,26 +394,43 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pricingContainer: {
-    marginBottom: 24,
-    padding: 20,
-    backgroundColor: colors.primaryLight,
-    borderRadius: 12,
+    marginBottom: 32,
+    marginHorizontal: 4,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    backgroundColor: '#7FD8BE', // Mint green/teal background
+    borderRadius: 16,
     alignItems: 'center',
+    shadowColor: '#7FD8BE',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   pricingTitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2D3748', // Darker gray for better contrast
+    marginBottom: 18,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
   pricingAmount: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: colors.surface,
-    marginBottom: 4,
+    fontSize: 42,
+    fontWeight: '800',
+    color: colors.surface, // White
+    marginBottom: 14,
+    letterSpacing: -0.5,
   },
   pricingNote: {
-    fontSize: 14,
-    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#2D3748', // Dark gray for readability
+    letterSpacing: 0.2,
+    lineHeight: 18,
   },
   upgradeButton: {
     flexDirection: 'row',

@@ -43,7 +43,7 @@ export default function Settings() {
 
     Alert.alert(
       'Cancel Subscription',
-      'Are you sure you want to cancel your premium subscription? You will lose access to all premium features at the end of your current billing period.',
+      'Are you sure you want to cancel your premium subscription? You will instantly lose access to all premium features, including custom preferences and personalized recipe recommendations.',
       [
         { text: 'Keep Subscription', style: 'cancel' },
         {
@@ -53,7 +53,7 @@ export default function Settings() {
             try {
               setCanceling(true);
               await cancelSubscription(user.uid);
-              Alert.alert('Success', 'Your subscription has been canceled. You will retain access until the end of your current billing period.');
+              Alert.alert('Subscription Canceled', 'Your subscription has been canceled. Premium features are no longer available.');
               await loadSubscriptionStatus();
             } catch (error) {
               console.error('Error canceling subscription:', error);
@@ -116,24 +116,26 @@ export default function Settings() {
           </View>
         ) : (
           <>
-            <View style={styles.infoRow}>
+            <View style={[styles.infoRow, styles.lastInfoRow]}>
               <Text style={styles.label}>Status</Text>
               <View style={styles.statusContainer}>
                 {isPremium ? (
                   <>
-                    <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
-                    <Text style={[styles.value, styles.premiumText]}>Premium Active</Text>
+                    <View style={styles.premiumBadge}>
+                      <Ionicons name="star" size={18} color={colors.primary} />
+                      <Text style={[styles.value, styles.premiumText]}>Premium Active</Text>
+                    </View>
                   </>
                 ) : (
                   <>
-                    <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+                    <Ionicons name="lock-closed" size={18} color={colors.textSecondary} />
                     <Text style={styles.value}>Free</Text>
                   </>
                 )}
               </View>
             </View>
             {isPremium && subscriptionStatus?.subscriptionCurrentPeriodEnd && (
-              <View style={styles.infoRow}>
+              <View style={[styles.infoRow, styles.lastInfoRow]}>
                 <Text style={styles.label}>Renews on</Text>
                 <Text style={styles.value}>
                   {new Date(subscriptionStatus.subscriptionCurrentPeriodEnd).toLocaleDateString('en-US', {
@@ -145,7 +147,15 @@ export default function Settings() {
               </View>
             )}
             {isPremium && (
-              <View style={styles.section}>
+              <View style={styles.warningBox}>
+                <Ionicons name="warning" size={20} color="#FF6B35" style={styles.warningIcon} />
+                <Text style={styles.warningText}>
+                  If you cancel, you will instantly lose access to all premium features.
+                </Text>
+              </View>
+            )}
+            {isPremium && (
+              <View style={styles.buttonContainer}>
                 <Button
                   title={canceling ? "Canceling..." : "Cancel Subscription"}
                   onPress={handleCancelSubscription}
@@ -155,7 +165,7 @@ export default function Settings() {
               </View>
             )}
             {!isPremium && (
-              <View style={styles.section}>
+              <View style={styles.buttonContainer}>
                 <Button
                   title="Upgrade to Premium"
                   onPress={() => router.push('/(tabs)/upgrade')}
@@ -193,51 +203,102 @@ export default function Settings() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.surface,
   },
   section: {
-    padding: 24,
-    marginTop: 16,
-    backgroundColor: '#fff',
+    padding: 20,
+    marginTop: 12,
+    marginHorizontal: 16,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textPrimary,
     marginBottom: 16,
   },
   infoRow: {
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.border,
+  },
+  lastInfoRow: {
+    borderBottomWidth: 0,
   },
   label: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: 6,
+    fontWeight: '500',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   value: {
     fontSize: 16,
-    color: '#333',
+    color: colors.textPrimary,
     fontWeight: '500',
   },
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 16,
+    justifyContent: 'center',
   },
   loadingText: {
-    marginLeft: 8,
+    marginLeft: 10,
     fontSize: 14,
-    color: '#666',
+    color: colors.textSecondary,
   },
   statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
+  premiumBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
   premiumText: {
     color: colors.primary,
     fontWeight: '600',
+  },
+  warningBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF4E6',
+    padding: 14,
+    borderRadius: 8,
+    marginTop: 12,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF6B35',
+  },
+  warningIcon: {
+    marginRight: 10,
+    marginTop: 2,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#8B4513',
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  buttonContainer: {
+    marginTop: 12,
   },
 });
