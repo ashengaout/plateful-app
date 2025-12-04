@@ -1023,7 +1023,9 @@ const styles = StyleSheet.create({
   premiumBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.primaryLight,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -1257,13 +1259,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.primary,
   },
   tagText: {
     fontSize: 14,
-    color: colors.accent,
+    color: colors.primary,
     marginRight: 4,
   },
   kidFriendlyBox: {

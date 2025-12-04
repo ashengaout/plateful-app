@@ -507,6 +507,14 @@ export default function ChatScreen() {
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
           
+          // Handle timeout errors (504 Gateway Timeout, 408 Request Timeout)
+          if (response.status === 504 || response.status === 408) {
+            const errorMessage = errorData.message || errorData.error || 'Recipe generation took too long. Please try again with a simpler request or a different dish.';
+            console.error('⏱️ Recipe generation timed out:', errorData);
+            Alert.alert('Request Timeout', errorMessage);
+            return;
+          }
+          
           // Handle off-topic conversations
           if (response.status === 400 && errorData.error === 'Off-topic conversation') {
             Alert.alert(
@@ -564,8 +572,8 @@ export default function ChatScreen() {
       }
       
       // Provide helpful context based on error message
-      if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
-        errorMessage = 'Recipe generation took too long. Please try again with a simpler request.';
+      if (errorMessage.includes('timeout') || errorMessage.includes('timed out') || errorMessage.includes('Request timeout')) {
+        errorMessage = 'Recipe generation took too long. Please try again with a simpler request or a different dish.';
       } else if (errorMessage.includes('Cannot connect') || errorMessage.includes('fetch')) {
         errorMessage = `Cannot connect to API server at ${API_BASE}. Make sure the API is running.`;
       } else if (errorMessage.includes('Cosmos') || errorMessage.includes('Database')) {
