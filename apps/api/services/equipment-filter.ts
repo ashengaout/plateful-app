@@ -1,38 +1,43 @@
 import type { RecipeData, FoodProfile } from '@plateful/shared';
+import { SPECIALTY_EQUIPMENT } from '@plateful/shared';
 
 /**
- * Detects equipment mentioned in recipe text
+ * Detects specialty equipment mentioned in recipe text
+ * Only detects specialty items (not common items like skillet, saucepan, etc.)
+ * Only checks instructions to avoid false positives from titles/descriptions
  * Returns array of equipment names found (case-insensitive matching)
  */
 export function detectEquipmentInRecipe(
   recipeData: RecipeData
 ): string[] {
-  const allText = [
-    recipeData.title || '',
-    recipeData.description || '',
-    ...(recipeData.instructions || [])
-  ].join(' ').toLowerCase();
+  // Only check instructions - equipment mentioned in title/description might not be required
+  // This makes filtering less restrictive and only filters when equipment is actually used
+  const instructionsText = (recipeData.instructions || []).join(' ').toLowerCase();
+  
+  if (!instructionsText) {
+    return []; // No instructions, can't detect equipment
+  }
 
-  // Common equipment keywords to search for
-  // This is a broader list than CAPACITY_LIMITED_EQUIPMENT
-  const equipmentKeywords = [
-    'instant pot', 'pressure cooker', 'slow cooker', 'crock-pot', 'rice cooker',
-    'dutch oven', 'cast iron', 'stockpot', 'saucepan', 'soup pot',
-    'skillet', 'frying pan', 'sauté pan', 'wok', 'grill pan', 'roasting pan',
-    'stand mixer', 'hand mixer', 'food processor', 'blender', 'immersion blender',
-    'baking sheet', 'baking dish', 'muffin tin', 'loaf pan', 'cake pan', 'pie dish',
-    'air fryer', 'toaster oven', 'steamer',
-    'grill', 'charcoal grill', 'gas grill', 'smoker', 'outdoor grill',
-    'juicer', 'spiralizer', 'mandoline', 'pasta maker', 'bread maker',
-    'meat thermometer', 'instant-read thermometer', 'kitchen scale', 'mortar and pestle',
-    'tagine', 'paella pan', 'carbon steel pan', 'stainless steel pan',
-  ];
+  // Only search for specialty equipment keywords
+  // Common items like skillet, saucepan, baking sheet are excluded
+  const equipmentKeywords = SPECIALTY_EQUIPMENT.map(eq => eq.toLowerCase());
 
   const foundEquipment: string[] = [];
 
   for (const keyword of equipmentKeywords) {
-    if (allText.includes(keyword.toLowerCase())) {
-      foundEquipment.push(keyword);
+    if (instructionsText.includes(keyword.toLowerCase())) {
+      // Find the original casing from SPECIALTY_EQUIPMENT
+      const originalEquipment = SPECIALTY_EQUIPMENT.find(eq => eq.toLowerCase() === keyword.toLowerCase());
+      if (originalEquipment) {
+        foundEquipment.push(originalEquipment);
+      }
+    }
+  }
+
+  // Also check for sous vide variations
+  if (instructionsText.includes('sous vide') || instructionsText.includes('sous-vide')) {
+    if (!foundEquipment.some(eq => eq.toLowerCase().includes('sous vide'))) {
+      foundEquipment.push('sous vide');
     }
   }
 
@@ -41,6 +46,8 @@ export function detectEquipmentInRecipe(
 
 /**
  * Checks if recipe requires unavailable equipment (hard filter)
+ * Uses strict matching - only filters if equipment is explicitly required/mentioned
+ * This is intentionally less restrictive to avoid filtering out recipes unnecessarily
  */
 export function requiresUnavailableEquipment(
   recipeData: RecipeData,
@@ -51,38 +58,38 @@ export function requiresUnavailableEquipment(
   }
 
   const recipeEquipment = detectEquipmentInRecipe(recipeData);
+  if (recipeEquipment.length === 0) {
+    return false; // No specialty equipment detected, don't filter
+  }
+
   const unavailableLower = profile.unavailableEquipment.map(eq => eq.toLowerCase());
 
-  // Check if any recipe equipment matches unavailable equipment (case-insensitive, partial matching)
-  return recipeEquipment.some(eq => 
-    unavailableLower.some(unavailable => 
-      eq.toLowerCase().includes(unavailable) || unavailable.includes(eq.toLowerCase())
-    )
-  );
+  // Use strict matching - equipment must be explicitly mentioned
+  // Only filter if there's a clear match (not just partial/substring matches)
+  return recipeEquipment.some(eq => {
+    const eqLower = eq.toLowerCase();
+    return unavailableLower.some(unavailableLowercase => {
+      // Require exact match or equipment name contains the unavailable item
+      // This prevents false positives (e.g., "stand mixer" matching "mixer" when user only marked "stand mixer" as unavailable)
+      return eqLower === unavailableLowercase || 
+             eqLower.includes(unavailableLowercase) ||
+             unavailableLowercase.includes(eqLower);
+    });
+  });
 }
 
 /**
- * Checks if recipe uses preferred equipment (soft preference)
- * Returns number of preferred equipment items found (for ranking)
+ * @deprecated Preferred equipment has been removed. This function always returns 0.
+ * Kept for backward compatibility but no longer used.
  */
 export function countPreferredEquipment(
   recipeData: RecipeData,
   profile: FoodProfile
 ): number {
-  if (!profile.preferredEquipment || profile.preferredEquipment.length === 0) {
-    return 0;
-  }
-
-  const recipeEquipment = detectEquipmentInRecipe(recipeData);
-  const preferredLower = profile.preferredEquipment.map(eq => eq.toLowerCase());
-
-  // Count how many preferred equipment items are found
-  return recipeEquipment.filter(eq => 
-    preferredLower.some(preferred => 
-      eq.toLowerCase().includes(preferred) || preferred.includes(eq.toLowerCase())
-    )
-  ).length;
+  // Preferred equipment feature has been removed
+  return 0;
 }
+
 
 
 

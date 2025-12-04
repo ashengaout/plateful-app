@@ -408,9 +408,7 @@ export default function ProfileScreen() {
   const [dislikesCustom, setDislikesCustom] = useState<string[]>([]);
   const [allergensCustom, setAllergensCustom] = useState<string[]>([]);
   const [restrictionsCustom, setRestrictionsCustom] = useState<string[]>([]);
-  const [preferredEquipment, setPreferredEquipment] = useState<string[]>([]);
   const [unavailableEquipment, setUnavailableEquipment] = useState<string[]>([]);
-  const [preferredEquipmentCustom, setPreferredEquipmentCustom] = useState<string[]>([]);
   const [unavailableEquipmentCustom, setUnavailableEquipmentCustom] = useState<string[]>([]);
   const [displayName, setDisplayName] = useState('');
   const [timezone, setTimezone] = useState('America/New_York');
@@ -499,13 +497,7 @@ export default function ProfileScreen() {
         setRestrictions([...restrictionsCommon, ...restrictionsCustom_]);
         setRestrictionsCustom(restrictionsCustom_);
 
-        // Load equipment preferences
-        const preferredEquipmentList = loadedProfile.preferredEquipment || [];
-        const preferredCommon = preferredEquipmentList.filter((e: string) => COMMON_EQUIPMENT.includes(e));
-        const preferredCustom_ = preferredEquipmentList.filter((e: string) => !COMMON_EQUIPMENT.includes(e));
-        setPreferredEquipment([...preferredCommon, ...preferredCustom_]);
-        setPreferredEquipmentCustom(preferredCustom_);
-
+        // Load unavailable equipment (preferred equipment feature removed)
         const unavailableEquipmentList = loadedProfile.unavailableEquipment || [];
         const unavailableCommon = unavailableEquipmentList.filter((e: string) => COMMON_EQUIPMENT.includes(e));
         const unavailableCustom_ = unavailableEquipmentList.filter((e: string) => !COMMON_EQUIPMENT.includes(e));
@@ -539,7 +531,6 @@ export default function ProfileScreen() {
       const allDislikes = dislikes;
       const allAllergens = allergens;
       const allRestrictions = restrictions;
-      const allPreferredEquipment = preferredEquipment;
       const allUnavailableEquipment = unavailableEquipment;
 
       const url = `${API_BASE}/api/profile/${user.uid}`;
@@ -590,7 +581,7 @@ export default function ProfileScreen() {
           dislikes: allDislikes,
           allergens: allAllergens,
           restrictions: allRestrictions,
-          preferredEquipment: allPreferredEquipment,
+          preferredEquipment: [], // Preferred equipment feature removed
           unavailableEquipment: allUnavailableEquipment,
         }),
       });
@@ -880,17 +871,6 @@ export default function ProfileScreen() {
               restrictionsCustom,
               setRestrictionsCustom,
               (item) => toggleSelection(item, restrictions, setRestrictions),
-              true // requires premium
-            )}
-
-            {renderPillSection(
-              'Preferred Equipment',
-              COMMON_EQUIPMENT,
-              preferredEquipment,
-              (item) => toggleSelection(item, preferredEquipment, setPreferredEquipment),
-              preferredEquipmentCustom,
-              setPreferredEquipmentCustom,
-              (item) => toggleSelection(item, preferredEquipment, setPreferredEquipment),
               true // requires premium
             )}
 

@@ -1,71 +1,31 @@
 /**
- * Common cooking equipment that users can select as preferences or unavailable items.
- * Used in profile settings for filtering recipes.
+ * Rare specialty cooking equipment that users can mark as unavailable.
+ * Only includes very rare/specialty items that are NOT commonly found in kitchens.
+ * This is intentionally a small list - only items that would significantly restrict recipe discovery.
+ * Common items like Dutch oven, wok, blender, food processor are excluded as they're too common.
  */
-export const COMMON_EQUIPMENT = [
-  // Pressure Cookers & Slow Cookers
-  'Instant Pot',
-  'pressure cooker',
-  'slow cooker',
-  'Crock-Pot',
-  'rice cooker',
-  
-  // Dutch Ovens & Pots
-  'Dutch oven',
-  'cast iron Dutch oven',
-  'enameled Dutch oven',
-  'stockpot',
-  'soup pot',
-  
-  // Pans & Skillets
-  'cast iron skillet',
-  'sauté pan',
-  'wok',
-  'grill pan',
-  'roasting pan',
-  
-  // Baking Equipment
-  'stand mixer',
-  'hand mixer',
-  'food processor',
-  'blender',
-  'immersion blender',
-  'baking sheet',
-  'baking dish',
-  'muffin tin',
-  'loaf pan',
-  'cake pan',
-  'pie dish',
-  'parchment paper',
-  
-  // Specialty Appliances
+export const SPECIALTY_EQUIPMENT = [
+  // Very Rare Specialty Appliances
+  'sous vide',
+  'sous vide machine',
   'air fryer',
-  'toaster oven',
-  'convection oven',
-  'steamer',
-  
-  // Grilling & Outdoor
   'smoker',
   
-  // Small Appliances
-  'juicer',
-  'spiralizer',
-  'mandoline',
+  // Rare Small Appliances
+  'stand mixer',
   'pasta maker',
   'bread maker',
+  'juicer',
+  'spiralizer',
   
-  // Knives & Tools
-  'paring knife',
-  'serrated knife',
-  'meat thermometer',
-  'instant-read thermometer',
-  'kitchen scale',
-  'mortar and pestle',
-  
-  // Specialty Cookware
+  // Rare Specialty Cookware
   'tagine',
   'paella pan',
-  'carbon steel pan',
-  'stainless steel pan',
 ];
+
+/**
+ * @deprecated Use SPECIALTY_EQUIPMENT instead. Kept for backward compatibility.
+ * This now only includes specialty items (same as SPECIALTY_EQUIPMENT).
+ */
+export const COMMON_EQUIPMENT = SPECIALTY_EQUIPMENT;
 

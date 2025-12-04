@@ -219,16 +219,7 @@ app.post('/', async (c) => {
       }
     }
 
-    // Step 3.5: Rank search results by preferred equipment (post-search ranking)
-    // Preferred equipment is a soft preference - we rank but don't filter (only if premium)
-    if (profile && profile.isPremium && profile.preferredEquipment && profile.preferredEquipment.length > 0) {
-      console.log(`🎯 Ranking ${searchResults.length} results by preferred equipment: ${profile.preferredEquipment.join(', ')}`);
-      
-      // We'll check equipment during scraping, but for now just log
-      // The actual ranking happens when we check equipment during formatRecipe
-      // Recipes that use preferred equipment will be tried first in the loop below
-      // (This is a simple approach - we could do more sophisticated ranking here)
-    }
+    // Preferred equipment feature has been removed - no ranking needed
 
     // Step 4: Try scraping each recipe URL until one succeeds
     console.log(`📄 Attempting to scrape recipe content...`);

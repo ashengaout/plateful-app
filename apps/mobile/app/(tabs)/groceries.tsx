@@ -709,7 +709,7 @@ export default function Groceries() {
     setLoadingCreate(true);
     try {
       const response = await fetch(
-        `${API_BASE}/api/grocery?userID=${auth.currentUser.uid}&action=createList`,
+        `${API_BASE}/api/grocery/${auth.currentUser.uid}/lists`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

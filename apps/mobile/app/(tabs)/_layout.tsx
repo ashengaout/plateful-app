@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@plateful/shared';
 import { Text, View, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const TabLabel = ({ focused, label }: { focused: boolean; label: string }) => (
   <View style={{ alignItems: 'center', justifyContent: 'center' }}>
@@ -31,6 +32,8 @@ const TabLabel = ({ focused, label }: { focused: boolean; label: string }) => (
 );
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+  
   return (
     <Tabs
       screenOptions={({ route }) => ({
@@ -41,10 +44,9 @@ export default function TabLayout() {
           borderTopWidth: 0.5,
           borderTopColor: 'rgba(0, 0, 0, 0.1)',
           paddingHorizontal: 12,
-          paddingBottom: 8,
+          paddingBottom: Math.max(insets.bottom, 8),
           paddingTop: 4,
-          height: Platform.OS === 'android' ? 85 : 65,
-          ...(Platform.OS === 'android' && { paddingBottom: 32 }),
+          height: Platform.OS === 'android' ? 65 + Math.max(insets.bottom, 8) : 65 + insets.bottom,
         },
         tabBarIconStyle: {
           marginTop: 4,

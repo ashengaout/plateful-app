@@ -71,17 +71,9 @@ export async function searchRecipe(
     // Level 3: No special context (neutral)
   }
 
-  // Build equipment context for search (only if premium)
-  // NOTE: Preferred equipment is NOT included in search query - it's too restrictive
-  // (e.g., searching "noodle dish dutch oven" would fail). Preferred equipment is used
-  // for post-search ranking instead.
-  let equipmentNote = '';
-  if (profile && profile.isPremium) {
-    if (profile.unavailableEquipment && profile.unavailableEquipment.length > 0) {
-      equipmentNote = `\n\nCRITICAL: Do NOT return recipes that require: ${profile.unavailableEquipment.join(', ')}. These are hard filters - exclude any recipe that needs these.`;
-    }
-    // Preferred equipment is handled post-search for ranking, not in the search query
-  }
+  // Equipment filtering is NOT done in search queries - it's too restrictive
+  // Equipment filtering happens AFTER scraping recipes (in generate-recipe.ts)
+  // This allows broader search results and only filters when we have the actual recipe content
 
   const response = await (client.messages.create as any)({
     model: "claude-haiku-4-5-20251001",
@@ -115,7 +107,7 @@ export async function searchRecipe(
     ],
     messages: [{
       role: "user",
-      content: `Search for: ${modifiedSearchQuery}${restrictionsNote}${proficiencyNote}${equipmentNote}
+      content: `Search for: ${modifiedSearchQuery}${restrictionsNote}${proficiencyNote}
 
 
 Find a specific recipe page URL (not a homepage or category page) from any reliable cooking website.
