@@ -679,7 +679,7 @@ export default function Groceries() {
               if (!auth.currentUser) return;
               
               const response = await fetch(
-                `${API_BASE}/api/grocery?userID=${auth.currentUser.uid}&action=deleteList&listID=${listID}`,
+                `${API_BASE}/api/grocery/${auth.currentUser.uid}/lists/${listID}`,
                 { method: 'DELETE' }
               );
 
